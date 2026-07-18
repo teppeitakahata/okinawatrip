@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b8a8a">
+<title>沖縄旅のしおり</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>🌺 沖縄旅のしおり</h1>
+  <button id="settingsBtn" class="icon-btn" aria-label="旅の設定">⚙️</button>
+</header>
+
+<nav class="tabbar" id="mainTabs">
+  <button class="tab-btn active" data-view="wishlist">📍 行きたい場所</button>
+  <button class="tab-btn" data-view="schedule">🗺️ 日程</button>
+</nav>
+
+<main>
+
+  <!-- ===== 行きたい場所 ===== -->
+  <section id="view-wishlist" class="view active">
+    <div class="section-toolbar">
+      <span id="placeCount" class="muted"></span>
+      <button id="addPlaceBtn" class="btn primary">＋ 場所を追加</button>
+    </div>
+    <div id="placeList" class="place-list"></div>
+    <p class="empty-hint" id="placeEmptyHint">まだ場所が登録されていません。「＋ 場所を追加」から行きたいお店やスポットを登録しましょう。</p>
+  </section>
+
+  <!-- ===== 日程 ===== -->
+  <section id="view-schedule" class="view">
+    <div class="section-toolbar">
+      <button id="aiBuildBtn" class="btn primary">✨ AIで日程を自動作成</button>
+      <span id="aiStatus" class="muted"></span>
+    </div>
+    <div class="day-tabs" id="dayTabs"></div>
+    <div id="dayWarning" class="warning-banner" hidden></div>
+    <div id="unscheduledBanner" class="warning-banner" hidden></div>
+    <div id="dayTimeline" class="timeline"></div>
+    <p class="estimate-note">※ 移動時間は直線距離から推定した参考値です。実際のルート・時間は必ずGoogleマップ等でご確認ください。</p>
+  </section>
+
+</main>
+
+<!-- ===== 場所 追加/編集 モーダル ===== -->
+<div id="placeModal" class="modal" hidden>
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2 id="placeModalTitle">場所を追加</h2>
+      <button class="icon-btn" data-close-modal aria-label="閉じる">✕</button>
+    </div>
+    <div class="modal-body" id="placeForm">
+      <label class="field">
+        <span>名前 *</span>
+        <input type="text" id="pf-name" placeholder="例: 南部そば" required>
+      </label>
+
+      <label class="field">
+        <span>カテゴリ</span>
+        <select id="pf-category">
+          <option value="food">🍜 食事</option>
+          <option value="sight">🏯 観光・景勝地</option>
+          <option value="beach">🏖️ ビーチ・海</option>
+          <option value="activity">🤿 アクティビティ</option>
+          <option value="shopping">🛍️ 買い物</option>
+          <option value="other">📍 その他</option>
+        </select>
+      </label>
+
+      <div class="field">
+        <span>メイン住所 *</span>
+        <div class="addr-row">
+          <input type="text" id="pf-address" placeholder="例: 沖縄県糸満市潮崎町3-2-2">
+          <button type="button" class="btn small" id="pf-geocode-main">住所を検索</button>
+        </div>
+        <p class="geo-status" id="pf-geo-status-main"></p>
+      </div>
+
+      <div class="field">
+        <span>滞在予定時間（分）</span>
+        <input type="number" id="pf-duration" min="10" step="5" value="60">
+      </div>
+
+      <label class="field">
+        <span>営業時間（メモ）</span>
+        <input type="text" id="pf-hours" placeholder="例: 11:00-15:00 L.O.14:30">
+      </label>
+
+      <label class="field">
+        <span>優先度</span>
+        <select id="pf-priority">
+          <option value="must">絶対行く</option>
+          <option value="want" selected>できれば行く</option>
+          <option value="maybe">候補</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>メモ・気づき</span>
+        <textarea id="pf-note" rows="2" placeholder="例: 第2駐車場の方が入口に近い／人気店なので開店直後がおすすめ"></textarea>
+      </label>
+
+      <div class="field">
+        <div class="field-head">
+          <span>追加の場所（第2駐車場など）</span>
+          <button type="button" class="btn small" id="pf-add-sub">＋ 追加</button>
+        </div>
+        <p class="hint">駐車場が複数あるお店や、入口と駐車場の住所が違う場所はここに登録すると、現地でどちらに向かうか迷いません。</p>
+        <div id="pf-sublist"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn danger" id="pf-delete" hidden>削除</button>
+      <button class="btn primary" id="pf-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 設定 モーダル ===== -->
+<div id="settingsModal" class="modal" hidden>
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <h2>旅の設定</h2>
+      <button class="icon-btn" data-close-modal aria-label="閉じる">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field">
+        <span>出発日</span>
+        <input type="date" id="st-start-date">
+      </label>
+      <label class="field">
+        <span>旅行日数</span>
+        <input type="number" id="st-days" min="1" max="14" value="5">
+      </label>
+      <div class="field">
+        <span>拠点（ホテル・レンタカー営業所など） *</span>
+        <div class="addr-row">
+          <input type="text" id="st-base-address" placeholder="例: 沖縄県那覇市牧志1-1-1">
+          <button type="button" class="btn small" id="st-geocode-base">住所を検索</button>
+        </div>
+        <p class="geo-status" id="st-geo-status"></p>
+      </div>
+      <label class="field">
+        <span>拠点の名前</span>
+        <input type="text" id="st-base-name" placeholder="例: 那覇のホテル">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>1日の開始時刻</span>
+          <input type="time" id="st-day-start" value="09:00">
+        </label>
+        <label class="field">
+          <span>1日の終了時刻</span>
+          <input type="time" id="st-day-end" value="19:00">
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn primary" id="st-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
