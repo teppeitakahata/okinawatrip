@@ -124,13 +124,19 @@ function clusterIntoDays(points, k) {
   return groups;
 }
 
+function hasCoords(p) {
+  return p && p.lat != null && p.lng != null;
+}
+
 export function computeDayTimeline(route, base, dayStartMin) {
   const items = [];
   let time = dayStartMin;
   let prev = base;
   for (const stop of route) {
-    const km = haversineKm(prev, stop);
-    const travelMin = driveMinutes(prev, stop);
+    // 手動追加の予定など、緯度経度が無い場合は移動距離・時間を0として扱う
+    const canMeasure = hasCoords(prev) && hasCoords(stop);
+    const km = canMeasure ? haversineKm(prev, stop) : 0;
+    const travelMin = canMeasure ? driveMinutes(prev, stop) : 0;
     const naturalArrival = time + travelMin;
     let arrival = naturalArrival;
     let late = false;
@@ -144,7 +150,7 @@ export function computeDayTimeline(route, base, dayStartMin) {
     time = departure;
     prev = stop;
   }
-  const travelBackMin = driveMinutes(prev, base);
+  const travelBackMin = hasCoords(prev) && hasCoords(base) ? driveMinutes(prev, base) : 0;
   const returnTime = time + travelBackMin;
   return { items, returnTime, travelBackMin };
 }

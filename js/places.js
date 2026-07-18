@@ -1,6 +1,6 @@
 import { store, uid } from "./storage.js";
 import { geocodeAddress, geocodeByName, googleMapsUrl, tabelogSearchUrl } from "./geo.js";
-import { toast } from "./ui-helpers.js";
+import { toast, confirmDialog } from "./ui-helpers.js";
 
 export const MEAL_META = {
   breakfast: { label: "朝食", icon: "🍳" },
@@ -32,6 +32,7 @@ export const PRIORITY_META = {
 let editingId = null;
 let subLocations = [];
 let isSaving = false; // 保存処理中の二重実行(=重複登録)を防ぐガード
+let afterSaveOnce = null; // 新規保存後に一度だけ呼ぶコールバック(日程への手動追加用)
 
 export function initPlacesUI({ onChange } = {}) {
   const listEl = document.getElementById("placeList");
@@ -112,8 +113,9 @@ export function initPlacesUI({ onChange } = {}) {
       </div>`;
   }
 
-  function openPlaceModal(id) {
+  function openPlaceModal(id, onSaved = null) {
     editingId = id;
+    afterSaveOnce = onSaved;
     const p = id ? store.getPlaces().find(x => x.id === id) : null;
     document.getElementById("placeModalTitle").textContent = p ? "場所を編集" : "場所を追加";
     document.getElementById("pf-name").value = p?.name || "";
@@ -161,6 +163,7 @@ export function initPlacesUI({ onChange } = {}) {
   function closePlaceModal() {
     modal.hidden = true;
     editingId = null;
+    afterSaveOnce = null;
   }
 
   function renderSubLocations() {
@@ -344,27 +347,42 @@ export function initPlacesUI({ onChange } = {}) {
       fixedTime: fixedTime || "",
     };
 
+    const wasNew = !editingId;
     const next = editingId ? places.map(p => (p.id === editingId ? place : p)) : [...places, place];
     store.setPlaces(next);
     delete modal.dataset.lat;
     delete modal.dataset.lng;
     delete modal.dataset.photoUrl;
+    const savedCb = afterSaveOnce; // closePlaceModalでnullになる前に退避
     closePlaceModal();
     renderPlaceList();
     onChange?.();
+    if (wasNew && savedCb) savedCb(place.id);
     toast("保存しました");
   }
 
-  function deletePlace() {
+  async function deletePlace() {
     if (!editingId) return;
-    if (!confirm("この場所を削除しますか？")) return;
-    store.setPlaces(store.getPlaces().filter(p => p.id !== editingId));
+    const ok = await confirmDialog("この場所を削除しますか？", { okLabel: "削除する", danger: true });
+    if (!ok) return;
+    const removedId = editingId;
+    store.setPlaces(store.getPlaces().filter(p => p.id !== removedId));
+    // 削除した場所を日程からも取り除く
+    const schedule = store.getSchedule();
+    if (schedule?.days) {
+      schedule.days.forEach(d => { d.placeIds = (d.placeIds || []).filter(id => id !== removedId); });
+      schedule.unscheduled = (schedule.unscheduled || []).filter(u => u.placeId !== removedId);
+      store.setSchedule(schedule);
+    }
     closePlaceModal();
     renderPlaceList();
     onChange?.();
+    toast("削除しました");
   }
 
   renderPlaceList();
+
+  return { openModal: openPlaceModal, renderList: renderPlaceList };
 }
 
 function escapeHtml(str) {
