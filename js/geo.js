@@ -28,11 +28,15 @@ export function driveMinutes(a, b) {
   return estimateDriveMinutes(haversineKm(a, b));
 }
 
+// キー名にバージョンを持たせることで、取得するフィールドを増やした際に
+// 古い(url/photoUrlを含まない)キャッシュが再利用されてしまう問題を避ける。
+const GEOCACHE_KEY = "okinawa-trip.geocache.v2";
+
 let geocodeCache = null;
 function getCache() {
   if (!geocodeCache) {
     try {
-      geocodeCache = JSON.parse(localStorage.getItem("okinawa-trip.geocache") || "{}");
+      geocodeCache = JSON.parse(localStorage.getItem(GEOCACHE_KEY) || "{}");
     } catch {
       geocodeCache = {};
     }
@@ -41,7 +45,7 @@ function getCache() {
 }
 
 function persistCache() {
-  localStorage.setItem("okinawa-trip.geocache", JSON.stringify(geocodeCache));
+  localStorage.setItem(GEOCACHE_KEY, JSON.stringify(geocodeCache));
 }
 
 // Nominatim(住所データの元がOSM)は「潮崎町3-2-2」のような番地付きの日本の住所を
@@ -76,12 +80,41 @@ async function nominatimSearch(query) {
   return res.json();
 }
 
-function toResult(hit, approx) {
+// OSMの wikipedia タグは "ja:首里城" のような "言語コード:記事名" 形式。
+// Wikipedia公式のREST APIで概要+サムネイル画像を取得できる(無料・キー不要・CORS許可済み)。
+async function fetchWikipediaSummary(tag) {
+  const m = /^([a-z-]+):(.+)$/.exec(tag || "");
+  if (!m) return null;
+  const [, lang, title] = m;
+  try {
+    const res = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      photoUrl: data.thumbnail?.source || null,
+      pageUrl: data.content_urls?.desktop?.page || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function toResult(hit, approx) {
+  const website = hit.extratags?.website || hit.extratags?.["contact:website"] || null;
+  let photoUrl = null;
+  let wikipediaUrl = null;
+  if (hit.extratags?.wikipedia) {
+    const wiki = await fetchWikipediaSummary(hit.extratags.wikipedia);
+    photoUrl = wiki?.photoUrl || null;
+    wikipediaUrl = wiki?.pageUrl || null;
+  }
   return {
     lat: parseFloat(hit.lat),
     lng: parseFloat(hit.lon),
     displayName: hit.display_name,
     openingHours: hit.extratags?.opening_hours || null,
+    url: website || wikipediaUrl || null,
+    photoUrl,
     approx,
   };
 }
@@ -98,7 +131,7 @@ export async function geocodeAddress(address) {
   for (let i = 0; i < candidates.length; i++) {
     const data = await nominatimSearch(candidates[i]);
     if (data.length) {
-      const result = toResult(data[0], i > 0);
+      const result = await toResult(data[0], i > 0);
       cache[key] = result;
       persistCache();
       return result;
@@ -120,13 +153,18 @@ export async function geocodeByName(name) {
   for (const q of candidates) {
     const data = await nominatimSearch(q);
     if (data.length) {
-      const result = toResult(data[0], true);
+      const result = await toResult(data[0], true);
       cache[cacheKey] = result;
       persistCache();
       return result;
     }
   }
   throw new Error("名前だけでは見つかりませんでした。住所を入力してください");
+}
+
+// 食べログはAPIが無いため厳密なページは特定できない。店名での検索結果ページへ誘導する。
+export function tabelogSearchUrl(name) {
+  return `https://tabelog.com/rstLst/?sw=${encodeURIComponent(name)}`;
 }
 
 // GoogleマップはNominatimより日本の番地表記の解析が格段に強いため、

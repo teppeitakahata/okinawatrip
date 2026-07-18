@@ -20,18 +20,53 @@ const MEAL_WINDOWS = {
   dinner: [17 * 60 + 30, 20 * 60 + 30],
 };
 
-// 到着予定時刻(分)が、その場所に設定された食事タイミングの帯からどれだけ外れているか(分)。
-// 複数タイミングが選ばれていれば最も近い帯で判定する。タイミング未設定なら0(制約なし)。
-function mealWindowPenaltyMinutes(mealTypes, arrivalMin) {
-  if (!mealTypes?.length) return 0;
+// 午前/午後/夜の目安時間帯(食事以外の「行きたい時間帯」に使う)。
+const TIME_OF_DAY_WINDOWS = {
+  morning: [8 * 60, 12 * 60],
+  afternoon: [12 * 60, 17 * 60],
+  evening: [17 * 60, 21 * 60],
+};
+
+// 到着予定時刻(分)が、指定された時間帯の帯からどれだけ外れているか(分)。
+// 複数選ばれていれば最も近い帯で判定する。未設定なら0(制約なし)。
+function nearestWindowPenalty(windowMap, keys, arrivalMin) {
+  if (!keys?.length) return 0;
   let best = Infinity;
-  for (const mt of mealTypes) {
-    const w = MEAL_WINDOWS[mt];
+  for (const k of keys) {
+    const w = windowMap[k];
     if (!w) continue;
     const d = arrivalMin < w[0] ? w[0] - arrivalMin : arrivalMin > w[1] ? arrivalMin - w[1] : 0;
     if (d < best) best = d;
   }
   return best === Infinity ? 0 : best;
+}
+
+// 移動距離(km)に、時間の希望からのズレ(分)を加味したコストを加算して比較する。
+// 3分のズレ ≒ 1kmの遠回りとして重み付け(食事/時間帯は「希望」程度の強さ)。
+// 固定時刻(飛行機など)はズレ1分 ≒ 20kmの遠回りとして扱い、ほぼ絶対に位置がズレないようにする。
+const SOFT_PENALTY_MIN_PER_KM = 3;
+const FIXED_PENALTY_MIN_PER_KM = 0.05;
+
+function timingPenaltyKm(place, arrivalMin) {
+  if (place.fixedTime) {
+    const fixedMin = parseHHMM(place.fixedTime);
+    return Math.abs(arrivalMin - fixedMin) / FIXED_PENALTY_MIN_PER_KM;
+  }
+  const mealPenalty = nearestWindowPenalty(MEAL_WINDOWS, place.mealTypes, arrivalMin);
+  const todPenalty = nearestWindowPenalty(TIME_OF_DAY_WINDOWS, place.preferredTimeOfDay, arrivalMin);
+  return (mealPenalty + todPenalty) / SOFT_PENALTY_MIN_PER_KM;
+}
+
+// 食事/時間帯の希望や固定時刻から、その場所を訪れたい最も早い時刻(分)を求める。
+// 該当する希望が無ければnull(制約なし)。
+function desiredEarliestArrival(place) {
+  if (place.fixedTime) return parseHHMM(place.fixedTime);
+  const windows = [
+    ...(place.mealTypes || []).map(mt => MEAL_WINDOWS[mt]),
+    ...(place.preferredTimeOfDay || []).map(t => TIME_OF_DAY_WINDOWS[t]),
+  ].filter(Boolean);
+  if (!windows.length) return null;
+  return Math.min(...windows.map(w => w[0]));
 }
 
 // 地理的に近い場所同士を同じ日にまとめる簡易k-meansクラスタリング。
@@ -96,9 +131,16 @@ export function computeDayTimeline(route, base, dayStartMin) {
   for (const stop of route) {
     const km = haversineKm(prev, stop);
     const travelMin = driveMinutes(prev, stop);
-    const arrival = time + travelMin;
+    const naturalArrival = time + travelMin;
+    let arrival = naturalArrival;
+    let late = false;
+    if (stop.fixedTime) {
+      const fixedMin = parseHHMM(stop.fixedTime);
+      if (naturalArrival > fixedMin) late = true;
+      else arrival = fixedMin; // 固定時刻より早く着く場合は、その時刻まで待つ
+    }
     const departure = arrival + (stop.durationMin || 30);
-    items.push({ place: stop, travelMin, distanceKm: km, arrival, departure });
+    items.push({ place: stop, travelMin, distanceKm: km, arrival, naturalArrival, departure, late });
     time = departure;
     prev = stop;
   }
@@ -107,21 +149,16 @@ export function computeDayTimeline(route, base, dayStartMin) {
   return { items, returnTime, travelBackMin };
 }
 
-// 移動距離(km)に、食事タイミングのズレ(分)を加味したコストを加算して比較する。
-// 3分のズレ ≒ 1kmの遠回りとして重み付け(数時間ズレたら大きな遠回りと同等に扱われ、
-// 食事の場所は自然と朝食/ランチ/ディナーの時間帯に収まるよう並び替えられる)。
-const MEAL_PENALTY_MIN_PER_KM = 3;
-
 function routeCost(route, base, dayStartMin) {
   const timeline = computeDayTimeline(route, base, dayStartMin);
   const last = route.length ? route[route.length - 1] : base;
   let km = timeline.items.reduce((s, it) => s + it.distanceKm, 0) + haversineKm(last, base);
-  let penaltyMin = 0;
-  timeline.items.forEach(it => { penaltyMin += mealWindowPenaltyMinutes(it.place.mealTypes, it.arrival); });
-  return km + penaltyMin / MEAL_PENALTY_MIN_PER_KM;
+  let penaltyKm = 0;
+  timeline.items.forEach(it => { penaltyKm += timingPenaltyKm(it.place, it.naturalArrival); });
+  return km + penaltyKm;
 }
 
-// 各ステップで「距離+食事タイミングのズレ」が最小の場所を選んでいく貪欲法。
+// 各ステップで「距離+時間の希望からのズレ」が最小の場所を選んでいく貪欲法。
 function greedyRoute(stops, base, dayStartMin) {
   const remaining = [...stops];
   const route = [];
@@ -132,39 +169,34 @@ function greedyRoute(stops, base, dayStartMin) {
     remaining.forEach((s, i) => {
       const travelMin = driveMinutes(current, s);
       const arrival = time + travelMin;
-      const score = haversineKm(current, s) + mealWindowPenaltyMinutes(s.mealTypes, arrival) / MEAL_PENALTY_MIN_PER_KM;
+      const score = haversineKm(current, s) + timingPenaltyKm(s, arrival);
       if (score < bestScore) { bestScore = score; bestIdx = i; bestArrival = arrival; }
     });
     const [next] = remaining.splice(bestIdx, 1);
     route.push(next);
-    time = bestArrival + (next.durationMin || 30);
+    let effectiveArrival = bestArrival;
+    if (next.fixedTime) {
+      const fixedMin = parseHHMM(next.fixedTime);
+      if (bestArrival <= fixedMin) effectiveArrival = fixedMin;
+    }
+    time = effectiveArrival + (next.durationMin || 30);
     current = next;
   }
   return route;
 }
 
-// その日の最初の訪問先が食事場所の場合、素の出発時刻(dayStartMin)のままだと
-// 朝一で到着してしまう(=ランチの店に9時到着など)ことがある。帰着が終了時刻に収まる
-// 範囲で出発を遅らせ、最初の到着が食事の時間帯に収まるよう調整する。
+// その日の最初の訪問先に食事/時間帯の希望や固定時刻がある場合、素の出発時刻(dayStartMin)
+// のままだと朝一で到着してしまう(=ランチの店に9時到着など)ことがある。帰着が終了時刻に
+// 収まる範囲で出発を遅らせ、最初の到着が希望の時間に収まるよう調整する。
 function bestStartDelay(route, base, dayStartMin, dayEndMin, currentReturnTime) {
   if (!route.length) return 0;
-  const first = route[0];
-  if (!first.mealTypes?.length) return 0;
-  const naiveArrival = dayStartMin + driveMinutes(base, first);
-
-  let neededDelay = 0;
-  for (const mt of first.mealTypes) {
-    const w = MEAL_WINDOWS[mt];
-    if (!w) continue;
-    if (naiveArrival >= w[0] && naiveArrival <= w[1]) return 0;
-    if (naiveArrival < w[0]) {
-      const d = w[0] - naiveArrival;
-      if (neededDelay === 0 || d < neededDelay) neededDelay = d;
-    }
-  }
-  if (neededDelay === 0) return 0;
+  const target = desiredEarliestArrival(route[0]);
+  if (target == null) return 0;
+  const naiveArrival = dayStartMin + driveMinutes(base, route[0]);
+  if (naiveArrival >= target) return 0;
+  const needed = target - naiveArrival;
   const slack = dayEndMin + 15 - currentReturnTime;
-  return Math.max(0, Math.min(neededDelay, slack));
+  return Math.max(0, Math.min(needed, slack));
 }
 
 // 隣接区間の入れ替え(2-opt簡易版)で、距離と食事タイミングを合わせたコストを減らす
@@ -190,6 +222,34 @@ function twoOptImprove(route, base, dayStartMin) {
   return best;
 }
 
+// 1日分の順序・時間割を組む処理。全体のAI作成(buildSchedule)と、1日だけの
+// 再調整(rebuildDay)の両方から使う。固定時刻の予定は優先度に関わらずトリミング対象外。
+function buildOneDay(stops, base, dayStartMin, dayEndMin) {
+  let route = twoOptImprove(greedyRoute(stops, base, dayStartMin), base, dayStartMin);
+  let timeline = computeDayTimeline(route, base, dayStartMin);
+  const leftover = [];
+
+  let guard = 0;
+  while (timeline.returnTime > dayEndMin + 15 && guard < 20) {
+    guard++;
+    const removable = route
+      .map((p, i) => ({ p, i }))
+      .filter(x => x.p.priority !== "must" && !x.p.fixedTime)
+      .sort((a, b) => PRIORITY_RANK[b.p.priority] - PRIORITY_RANK[a.p.priority]);
+    if (!removable.length) break;
+    const { i } = removable[0];
+    leftover.push(route[i]);
+    route = [...route.slice(0, i), ...route.slice(i + 1)];
+    timeline = computeDayTimeline(route, base, dayStartMin);
+  }
+
+  const delay = bestStartDelay(route, base, dayStartMin, dayEndMin, timeline.returnTime);
+  const startMin = dayStartMin + delay;
+  if (delay > 0) timeline = computeDayTimeline(route, base, startMin);
+
+  return { route, timeline, leftover, startMin };
+}
+
 export function buildSchedule({ places, settings }) {
   const numDays = Math.max(1, Number(settings.days) || 1);
   const base = settings.base;
@@ -209,29 +269,8 @@ export function buildSchedule({ places, settings }) {
   pinned.forEach(p => dayBuckets[p.pinnedDay - 1].push(p));
 
   const days = dayBuckets.map((stops, idx) => {
-    let route = twoOptImprove(greedyRoute(stops, base, dayStartMin), base, dayStartMin);
-    let timeline = computeDayTimeline(route, base, dayStartMin);
-    const dayLeftover = [];
-
-    let guard = 0;
-    while (timeline.returnTime > dayEndMin + 15 && guard < 20) {
-      guard++;
-      const removable = route
-        .map((p, i) => ({ p, i }))
-        .filter(x => x.p.priority !== "must")
-        .sort((a, b) => PRIORITY_RANK[b.p.priority] - PRIORITY_RANK[a.p.priority]);
-      if (!removable.length) break;
-      const { i } = removable[0];
-      dayLeftover.push(route[i]);
-      route = [...route.slice(0, i), ...route.slice(i + 1)];
-      timeline = computeDayTimeline(route, base, dayStartMin);
-    }
-
-    const delay = bestStartDelay(route, base, dayStartMin, dayEndMin, timeline.returnTime);
-    const startMin = dayStartMin + delay;
-    if (delay > 0) timeline = computeDayTimeline(route, base, startMin);
-
-    return { dayIndex: idx, route, timeline, leftover: dayLeftover, startMin };
+    const { route, timeline, leftover, startMin } = buildOneDay(stops, base, dayStartMin, dayEndMin);
+    return { dayIndex: idx, route, timeline, leftover, startMin };
   });
 
   // あふれた場所を、時間に余裕がある他の日へ挿入できないか試す
@@ -264,5 +303,39 @@ export function buildSchedule({ places, settings }) {
       startMin: d.startMin,
     })),
     unscheduled: unscheduled.map(u => ({ placeId: u.place.id, reason: u.reason })),
+  };
+}
+
+// 「気に入らない場所を手動で外す/移動してから、この日だけAIに再調整させる」ための関数。
+// 対象日に残っている場所(手動編集後の状態)＋まだどの日にも入っていない候補だけを使って、
+// その日単体を再構成する。他の日の内容には触れない。
+export function rebuildDay({ dayIndex, places, schedule, settings }) {
+  const base = settings.base;
+  const dayStartMin = parseHHMM(settings.dayStart);
+  const dayEndMin = parseHHMM(settings.dayEnd);
+  const placesById = new Map(places.map(p => [p.id, p]));
+
+  const assignedElsewhere = new Set();
+  schedule.days.forEach((d, i) => {
+    if (i !== dayIndex) d.placeIds.forEach(id => assignedElsewhere.add(id));
+  });
+
+  const keepIds = schedule.days[dayIndex]?.placeIds || [];
+  const keepPlaces = keepIds.map(id => placesById.get(id)).filter(p => p && p.lat != null);
+
+  const unassigned = places.filter(p =>
+    p.lat != null &&
+    !assignedElsewhere.has(p.id) &&
+    !keepIds.includes(p.id) &&
+    (!p.pinnedDay || p.pinnedDay === dayIndex + 1)
+  );
+
+  const { route, timeline, leftover, startMin } = buildOneDay([...keepPlaces, ...unassigned], base, dayStartMin, dayEndMin);
+
+  return {
+    dayIndex,
+    placeIds: route.map(p => p.id),
+    startMin,
+    unscheduled: leftover.map(p => ({ placeId: p.id, reason: "時間の都合で今回の日程には組み込めませんでした" })),
   };
 }

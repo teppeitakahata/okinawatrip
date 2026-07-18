@@ -1,11 +1,17 @@
 import { store, uid } from "./storage.js";
-import { geocodeAddress, geocodeByName, googleMapsUrl } from "./geo.js";
+import { geocodeAddress, geocodeByName, googleMapsUrl, tabelogSearchUrl } from "./geo.js";
 import { toast } from "./ui-helpers.js";
 
 export const MEAL_META = {
   breakfast: { label: "朝食", icon: "🍳" },
   lunch: { label: "ランチ", icon: "🍱" },
   dinner: { label: "ディナー", icon: "🌙" },
+};
+
+export const TIME_OF_DAY_META = {
+  morning: { label: "午前", icon: "🌅" },
+  afternoon: { label: "午後", icon: "☀️" },
+  evening: { label: "夜", icon: "🌙" },
 };
 
 export const CATEGORY_META = {
@@ -64,6 +70,10 @@ export function initPlacesUI({ onChange } = {}) {
     const pr = PRIORITY_META[p.priority] || PRIORITY_META.want;
     const geoWarn = p.lat == null ? `<span class="badge warn">未検索の住所</span>` : "";
     const mealBadges = (p.mealTypes || []).map(mt => `<span class="badge">${MEAL_META[mt]?.icon || ""} ${MEAL_META[mt]?.label || mt}</span>`).join("");
+    const todBadges = (p.preferredTimeOfDay || []).map(t => `<span class="badge">${TIME_OF_DAY_META[t]?.icon || ""} ${TIME_OF_DAY_META[t]?.label || t}</span>`).join("");
+    const fixedBadge = p.fixedTime && p.pinnedDay
+      ? `<span class="badge fixed">⏰ Day${p.pinnedDay} ${escapeHtml(p.fixedTime)}固定</span>`
+      : "";
     const subHtml = (p.subLocations || []).length
       ? `<div class="sub-loc-list">${p.subLocations.map(s => `
           <div class="sub-loc-item">
@@ -71,8 +81,13 @@ export function initPlacesUI({ onChange } = {}) {
             <a href="${googleMapsUrl(s)}" target="_blank" rel="noopener">地図</a>
           </div>`).join("")}</div>`
       : "";
+    const photoHtml = p.photoUrl ? `<img class="place-photo" src="${escapeAttr(p.photoUrl)}" alt="" loading="lazy">` : "";
+    const links = [`<a href="${googleMapsUrl(p)}" target="_blank" rel="noopener">🗺️ Googleマップ</a>`];
+    if (p.url) links.push(`<a href="${escapeAttr(p.url)}" target="_blank" rel="noopener">🔗 公式・参考サイト</a>`);
+    if (p.category === "food") links.push(`<a href="${tabelogSearchUrl(p.name)}" target="_blank" rel="noopener">🍜 食べログで検索</a>`);
     return `
       <div class="place-card" data-priority="${p.priority}">
+        ${photoHtml}
         <div class="place-card-top">
           <div>
             <div class="place-name">${cat.icon} ${escapeHtml(p.name)}</div>
@@ -80,6 +95,8 @@ export function initPlacesUI({ onChange } = {}) {
               <span class="badge">${cat.label}</span>
               <span class="badge priority-${p.priority}">${pr.label}</span>
               ${mealBadges}
+              ${todBadges}
+              ${fixedBadge}
               ${geoWarn}
             </div>
           </div>
@@ -90,7 +107,7 @@ export function initPlacesUI({ onChange } = {}) {
         ${p.address ? `<p class="place-addr">${escapeHtml(p.address)}${p.hours ? " ・ " + escapeHtml(p.hours) : ""}</p>` : ""}
         ${p.note ? `<p class="place-note">${escapeHtml(p.note)}</p>` : ""}
         ${subHtml}
-        <div class="map-links"><a href="${googleMapsUrl(p)}" target="_blank" rel="noopener">🗺️ Googleマップで開く</a></div>
+        <div class="map-links">${links.join("")}</div>
       </div>`;
   }
 
@@ -101,20 +118,39 @@ export function initPlacesUI({ onChange } = {}) {
     document.getElementById("pf-name").value = p?.name || "";
     document.getElementById("pf-category").value = p?.category || "sight";
     document.getElementById("pf-address").value = p?.address || "";
+    document.getElementById("pf-url").value = p?.url || "";
     document.getElementById("pf-duration").value = p?.durationMin || CATEGORY_META[p?.category || "sight"].defaultMinutes;
     document.getElementById("pf-hours").value = p?.hours || "";
     document.getElementById("pf-priority").value = p?.priority || "want";
     document.getElementById("pf-note").value = p?.note || "";
     document.getElementById("pf-delete").hidden = !p;
     setGeoStatus("main", p?.lat != null ? `緯度経度: 取得済み` : "", p?.lat != null ? "ok" : "");
+    modal.dataset.photoUrl = p?.photoUrl || "";
     const mealTypes = p?.mealTypes || [];
     document.getElementById("pf-meal-breakfast").checked = mealTypes.includes("breakfast");
     document.getElementById("pf-meal-lunch").checked = mealTypes.includes("lunch");
     document.getElementById("pf-meal-dinner").checked = mealTypes.includes("dinner");
+    const tod = p?.preferredTimeOfDay || [];
+    document.getElementById("pf-tod-morning").checked = tod.includes("morning");
+    document.getElementById("pf-tod-afternoon").checked = tod.includes("afternoon");
+    document.getElementById("pf-tod-evening").checked = tod.includes("evening");
+    populatePinnedDayOptions(p?.pinnedDay || "");
+    document.getElementById("pf-fixed-time").value = p?.fixedTime || "";
     toggleMealFields(p?.category || "sight");
     subLocations = p?.subLocations ? p.subLocations.map(s => ({ ...s })) : [];
     renderSubLocations();
     modal.hidden = false;
+  }
+
+  function populatePinnedDayOptions(selected) {
+    const numDays = Math.max(1, Number(store.getSettings().days) || 1);
+    const sel = document.getElementById("pf-pinned-day");
+    const options = [`<option value="">日付を指定しない</option>`];
+    for (let d = 1; d <= numDays; d++) {
+      options.push(`<option value="${d}">Day${d}</option>`);
+    }
+    sel.innerHTML = options.join("");
+    sel.value = selected || "";
   }
 
   function toggleMealFields(category) {
@@ -191,6 +227,7 @@ export function initPlacesUI({ onChange } = {}) {
       document.getElementById("placeModal").dataset.lat = r.lat;
       document.getElementById("placeModal").dataset.lng = r.lng;
       applyOpeningHours(r.openingHours);
+      applyUrlAndPhoto(r);
       setGeoStatus("main", (r.approx ? "おおよその位置（正確な場所はGoogleマップで確認してください）: " : "見つかりました: ") + r.displayName, "ok");
     } catch (e) {
       setGeoStatus("main", e.message, "err");
@@ -204,6 +241,12 @@ export function initPlacesUI({ onChange } = {}) {
       hoursInput.value = openingHours;
       toast("営業時間も見つかったので自動入力しました（要確認）");
     }
+  }
+
+  function applyUrlAndPhoto(r) {
+    const urlInput = document.getElementById("pf-url");
+    if (r.url && !urlInput.value.trim()) urlInput.value = r.url;
+    if (r.photoUrl) modal.dataset.photoUrl = r.photoUrl;
   }
 
   function setGeoStatus(which, text, cls) {
@@ -232,6 +275,7 @@ export function initPlacesUI({ onChange } = {}) {
         const r = await geocodeAddress(address);
         lat = r.lat; lng = r.lng;
         applyOpeningHours(r.openingHours);
+        applyUrlAndPhoto(r);
       } catch (e) {
         setGeoStatus("main", `${e.message}（住所は保存されますが地図上の位置が未確定です）`, "err");
       }
@@ -243,6 +287,7 @@ export function initPlacesUI({ onChange } = {}) {
         address = r.displayName;
         document.getElementById("pf-address").value = address;
         applyOpeningHours(r.openingHours);
+        applyUrlAndPhoto(r);
       } catch (e) {
         setGeoStatus("main", e.message, "err");
       }
@@ -251,26 +296,41 @@ export function initPlacesUI({ onChange } = {}) {
     const mealTypes = ["breakfast", "lunch", "dinner"].filter(
       mt => document.getElementById(`pf-meal-${mt}`).checked
     );
+    const preferredTimeOfDay = ["morning", "afternoon", "evening"].filter(
+      t => document.getElementById(`pf-tod-${t}`).checked
+    );
+
+    const pinnedDayRaw = document.getElementById("pf-pinned-day").value;
+    const fixedTime = document.getElementById("pf-fixed-time").value;
+    if (fixedTime && !pinnedDayRaw) {
+      toast("固定時刻を使う場合は、日付（Day1など）も選択してください");
+      return;
+    }
 
     const place = {
       id: editingId || uid(),
       name,
       category: document.getElementById("pf-category").value,
       address,
+      url: document.getElementById("pf-url").value.trim(),
+      photoUrl: modal.dataset.photoUrl || null,
       lat, lng,
       durationMin: Number(document.getElementById("pf-duration").value) || 30,
       hours: document.getElementById("pf-hours").value.trim(),
       priority: document.getElementById("pf-priority").value,
       note: document.getElementById("pf-note").value.trim(),
       mealTypes,
+      preferredTimeOfDay,
       subLocations: subLocations.filter(s => s.label || s.address),
-      pinnedDay: existing?.pinnedDay ?? null,
+      pinnedDay: pinnedDayRaw ? Number(pinnedDayRaw) : null,
+      fixedTime: fixedTime || "",
     };
 
     const next = editingId ? places.map(p => (p.id === editingId ? place : p)) : [...places, place];
     store.setPlaces(next);
     delete modal.dataset.lat;
     delete modal.dataset.lng;
+    delete modal.dataset.photoUrl;
     closePlaceModal();
     renderPlaceList();
     onChange?.();

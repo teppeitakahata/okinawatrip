@@ -42,6 +42,10 @@
       <span id="aiStatus" class="muted"></span>
     </div>
     <div class="day-tabs" id="dayTabs"></div>
+    <div class="section-toolbar">
+      <button id="rebuildDayBtn" class="btn">🤖 この日をAIで再調整</button>
+      <span class="muted">気に入らない予定を✕で外す/移動してから押すと、残りを最適な順序に組み直し、空いた時間に他の候補を提案します。</span>
+    </div>
     <div id="dayWarning" class="warning-banner" hidden></div>
     <div id="unscheduledBanner" class="warning-banner" hidden></div>
     <div id="dayTimeline" class="timeline"></div>
@@ -85,18 +89,45 @@
       </div>
 
       <div class="field">
+        <span>行きたい時間帯（任意・複数選択可・AIの参考になります）</span>
+        <div class="meal-checks">
+          <label><input type="checkbox" id="pf-tod-morning" value="morning"> 🌅 午前</label>
+          <label><input type="checkbox" id="pf-tod-afternoon" value="afternoon"> ☀️ 午後</label>
+          <label><input type="checkbox" id="pf-tod-evening" value="evening"> 🌙 夜</label>
+        </div>
+      </div>
+
+      <div class="field">
         <span>メイン住所</span>
         <div class="addr-row">
           <input type="text" id="pf-address" placeholder="例: 沖縄県糸満市潮崎町3-2-2">
           <button type="button" class="btn small" id="pf-geocode-main">住所を検索</button>
         </div>
-        <p class="hint">住所が分からない場合は空欄のまま押すと、名前からOpenStreetMap上のデータを検索します（無料の地図データベースのため、有名な観光地以外は見つからないことが多いです。営業時間も、データが登録されている場所のみ自動入力されます）。</p>
+        <p class="hint">住所が分からない場合は空欄のまま押すと、名前からOpenStreetMap上のデータを検索します（無料の地図データベースのため、有名な観光地以外は見つからないことが多いです。営業時間・写真・公式URLも、データが登録されている場所のみ自動入力されます）。</p>
         <p class="geo-status" id="pf-geo-status-main"></p>
       </div>
+
+      <label class="field">
+        <span>参考URL（公式サイトなど・任意）</span>
+        <input type="text" id="pf-url" placeholder="https://...">
+      </label>
 
       <div class="field">
         <span>滞在予定時間（分）</span>
         <input type="number" id="pf-duration" min="10" step="5" value="60">
+      </div>
+
+      <div class="field">
+        <div class="field-head">
+          <span>⏰ 固定予定にする（任意）</span>
+        </div>
+        <p class="hint">飛行機の到着時刻やレンタカー返却など、時間・日付を変更できない予定はここで指定すると、AIはこの時刻・日付を変えずにスケジュールを組みます。</p>
+        <div class="field-row">
+          <select id="pf-pinned-day">
+            <option value="">日付を指定しない</option>
+          </select>
+          <input type="time" id="pf-fixed-time">
+        </div>
       </div>
 
       <label class="field">

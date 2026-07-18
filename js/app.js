@@ -1,7 +1,7 @@
 import { store } from "./storage.js";
 import { geocodeAddress, googleMapsUrl, googleMapsDirectionsUrl } from "./geo.js";
 import { initPlacesUI, CATEGORY_META } from "./places.js";
-import { buildSchedule, computeDayTimeline, minutesToHHMM } from "./scheduler.js";
+import { buildSchedule, rebuildDay, computeDayTimeline, minutesToHHMM } from "./scheduler.js";
 import { toast } from "./ui-helpers.js";
 
 if ("serviceWorker" in navigator) {
@@ -90,6 +90,11 @@ function renderTimeline() {
   timeline.items.forEach((it, idx) => {
     const p = it.place;
     const cat = CATEGORY_META[p.category] || CATEGORY_META.other;
+    const fixedNote = p.fixedTime
+      ? it.late
+        ? `<div class="tl-card-note warn">⚠ この予定は${p.fixedTime}固定ですが、前の予定からだと到着が遅れる見込みです。順番を調整してください。</div>`
+        : `<div class="tl-card-note">⏰ ${p.fixedTime}に固定（早く着く場合は時間まで待機）</div>`
+      : "";
     html += `<div class="tl-travel">🚗 車で約${it.travelMin}分（約${Math.round(it.distanceKm * 10) / 10}km・推定）</div>`;
     html += `
       <div class="tl-item" data-place-id="${p.id}">
@@ -107,6 +112,7 @@ function renderTimeline() {
               <button data-act="remove" data-idx="${idx}" aria-label="外す">✕</button>
             </div>
           </div>
+          ${fixedNote}
           ${p.note ? `<div class="tl-card-note">💡 ${escapeHtml(p.note)}</div>` : ""}
           ${subLocsHtml(p)}
           <div class="map-links">
@@ -242,6 +248,30 @@ function runAiBuild() {
   toast("日程を作成しました");
 }
 
+function runRebuildDay() {
+  const settings = store.getSettings();
+  if (settings.base?.lat == null) {
+    toast("先に「旅の設定」で拠点の住所を検索・保存してください");
+    return;
+  }
+  const schedule = ensureScheduleShape(settings);
+  const places = store.getPlaces();
+
+  const result = rebuildDay({ dayIndex: activeDay, places, schedule, settings });
+  schedule.days[activeDay] = { dayIndex: result.dayIndex, placeIds: result.placeIds, startMin: result.startMin };
+
+  const allPlacedIds = new Set(schedule.days.flatMap(d => d.placeIds));
+  const otherUnscheduled = (schedule.unscheduled || []).filter(u => !allPlacedIds.has(u.placeId));
+  result.unscheduled.forEach(u => {
+    if (!otherUnscheduled.some(x => x.placeId === u.placeId)) otherUnscheduled.push(u);
+  });
+  schedule.unscheduled = otherUnscheduled;
+
+  store.setSchedule(schedule);
+  renderTimeline();
+  toast("この日をAIで再調整しました");
+}
+
 function openSettingsModal() {
   const s = store.getSettings();
   document.getElementById("st-start-date").value = s.startDate || "";
@@ -316,6 +346,7 @@ function init() {
     btn.addEventListener("click", () => switchMainTab(btn.dataset.view))
   );
   document.getElementById("aiBuildBtn").addEventListener("click", runAiBuild);
+  document.getElementById("rebuildDayBtn").addEventListener("click", runRebuildDay);
 
   initSettingsUI();
   initPlacesUI({ onChange: () => renderTimeline() });
