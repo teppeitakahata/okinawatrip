@@ -75,12 +75,22 @@
         </select>
       </label>
 
+      <div class="field" id="pf-mealtypes-field" hidden>
+        <span>食事のタイミング（複数選択可・AIの日程作成の目安になります）</span>
+        <div class="meal-checks">
+          <label><input type="checkbox" id="pf-meal-breakfast" value="breakfast"> 🍳 朝食</label>
+          <label><input type="checkbox" id="pf-meal-lunch" value="lunch"> 🍱 ランチ</label>
+          <label><input type="checkbox" id="pf-meal-dinner" value="dinner"> 🌙 ディナー</label>
+        </div>
+      </div>
+
       <div class="field">
-        <span>メイン住所 *</span>
+        <span>メイン住所</span>
         <div class="addr-row">
           <input type="text" id="pf-address" placeholder="例: 沖縄県糸満市潮崎町3-2-2">
           <button type="button" class="btn small" id="pf-geocode-main">住所を検索</button>
         </div>
+        <p class="hint">住所が分からない場合は空欄のまま押すと、名前からOpenStreetMap上のデータを検索します（無料の地図データベースのため、有名な観光地以外は見つからないことが多いです。営業時間も、データが登録されている場所のみ自動入力されます）。</p>
         <p class="geo-status" id="pf-geo-status-main"></p>
       </div>
 

@@ -1,6 +1,12 @@
 import { store, uid } from "./storage.js";
-import { geocodeAddress, googleMapsUrl } from "./geo.js";
+import { geocodeAddress, geocodeByName, googleMapsUrl } from "./geo.js";
 import { toast } from "./ui-helpers.js";
+
+export const MEAL_META = {
+  breakfast: { label: "朝食", icon: "🍳" },
+  lunch: { label: "ランチ", icon: "🍱" },
+  dinner: { label: "ディナー", icon: "🌙" },
+};
 
 export const CATEGORY_META = {
   food: { label: "食事", icon: "🍜", defaultMinutes: 60 },
@@ -34,6 +40,7 @@ export function initPlacesUI({ onChange } = {}) {
   document.getElementById("pf-geocode-main").addEventListener("click", () => geocodeMain());
   document.getElementById("pf-save").addEventListener("click", () => savePlace());
   document.getElementById("pf-delete").addEventListener("click", () => deletePlace());
+  document.getElementById("pf-category").addEventListener("change", e => toggleMealFields(e.target.value));
 
   modal.querySelectorAll("[data-close-modal]").forEach(btn =>
     btn.addEventListener("click", () => closePlaceModal())
@@ -56,6 +63,7 @@ export function initPlacesUI({ onChange } = {}) {
     const cat = CATEGORY_META[p.category] || CATEGORY_META.other;
     const pr = PRIORITY_META[p.priority] || PRIORITY_META.want;
     const geoWarn = p.lat == null ? `<span class="badge warn">未検索の住所</span>` : "";
+    const mealBadges = (p.mealTypes || []).map(mt => `<span class="badge">${MEAL_META[mt]?.icon || ""} ${MEAL_META[mt]?.label || mt}</span>`).join("");
     const subHtml = (p.subLocations || []).length
       ? `<div class="sub-loc-list">${p.subLocations.map(s => `
           <div class="sub-loc-item">
@@ -71,6 +79,7 @@ export function initPlacesUI({ onChange } = {}) {
             <div class="place-badges">
               <span class="badge">${cat.label}</span>
               <span class="badge priority-${p.priority}">${pr.label}</span>
+              ${mealBadges}
               ${geoWarn}
             </div>
           </div>
@@ -98,9 +107,18 @@ export function initPlacesUI({ onChange } = {}) {
     document.getElementById("pf-note").value = p?.note || "";
     document.getElementById("pf-delete").hidden = !p;
     setGeoStatus("main", p?.lat != null ? `緯度経度: 取得済み` : "", p?.lat != null ? "ok" : "");
+    const mealTypes = p?.mealTypes || [];
+    document.getElementById("pf-meal-breakfast").checked = mealTypes.includes("breakfast");
+    document.getElementById("pf-meal-lunch").checked = mealTypes.includes("lunch");
+    document.getElementById("pf-meal-dinner").checked = mealTypes.includes("dinner");
+    toggleMealFields(p?.category || "sight");
     subLocations = p?.subLocations ? p.subLocations.map(s => ({ ...s })) : [];
     renderSubLocations();
     modal.hidden = false;
+  }
+
+  function toggleMealFields(category) {
+    document.getElementById("pf-mealtypes-field").hidden = category !== "food";
   }
 
   function closePlaceModal() {
@@ -157,15 +175,34 @@ export function initPlacesUI({ onChange } = {}) {
   }
 
   async function geocodeMain() {
-    const addr = document.getElementById("pf-address").value;
+    const addr = document.getElementById("pf-address").value.trim();
+    const name = document.getElementById("pf-name").value.trim();
     setGeoStatus("main", "検索中...", "");
     try {
-      const r = await geocodeAddress(addr);
+      let r;
+      if (addr) {
+        r = await geocodeAddress(addr);
+      } else if (name) {
+        r = await geocodeByName(name);
+        document.getElementById("pf-address").value = r.displayName;
+      } else {
+        throw new Error("名前または住所を入力してください");
+      }
       document.getElementById("placeModal").dataset.lat = r.lat;
       document.getElementById("placeModal").dataset.lng = r.lng;
-      setGeoStatus("main", (r.approx ? "おおよその位置（町丁目単位、正確な番地はGoogleマップで確認してください）: " : "見つかりました: ") + r.displayName, "ok");
+      applyOpeningHours(r.openingHours);
+      setGeoStatus("main", (r.approx ? "おおよその位置（正確な場所はGoogleマップで確認してください）: " : "見つかりました: ") + r.displayName, "ok");
     } catch (e) {
       setGeoStatus("main", e.message, "err");
+    }
+  }
+
+  function applyOpeningHours(openingHours) {
+    if (!openingHours) return;
+    const hoursInput = document.getElementById("pf-hours");
+    if (!hoursInput.value.trim()) {
+      hoursInput.value = openingHours;
+      toast("営業時間も見つかったので自動入力しました（要確認）");
     }
   }
 
@@ -178,7 +215,7 @@ export function initPlacesUI({ onChange } = {}) {
   async function savePlace() {
     const name = document.getElementById("pf-name").value.trim();
     if (!name) { toast("名前を入力してください"); return; }
-    const address = document.getElementById("pf-address").value.trim();
+    let address = document.getElementById("pf-address").value.trim();
     let lat = modal.dataset.lat ? Number(modal.dataset.lat) : null;
     let lng = modal.dataset.lng ? Number(modal.dataset.lng) : null;
 
@@ -194,10 +231,26 @@ export function initPlacesUI({ onChange } = {}) {
       try {
         const r = await geocodeAddress(address);
         lat = r.lat; lng = r.lng;
+        applyOpeningHours(r.openingHours);
       } catch (e) {
         setGeoStatus("main", `${e.message}（住所は保存されますが地図上の位置が未確定です）`, "err");
       }
+    } else if (lat == null && !address && name) {
+      setGeoStatus("main", "検索中...", "");
+      try {
+        const r = await geocodeByName(name);
+        lat = r.lat; lng = r.lng;
+        address = r.displayName;
+        document.getElementById("pf-address").value = address;
+        applyOpeningHours(r.openingHours);
+      } catch (e) {
+        setGeoStatus("main", e.message, "err");
+      }
     }
+
+    const mealTypes = ["breakfast", "lunch", "dinner"].filter(
+      mt => document.getElementById(`pf-meal-${mt}`).checked
+    );
 
     const place = {
       id: editingId || uid(),
@@ -209,6 +262,7 @@ export function initPlacesUI({ onChange } = {}) {
       hours: document.getElementById("pf-hours").value.trim(),
       priority: document.getElementById("pf-priority").value,
       note: document.getElementById("pf-note").value.trim(),
+      mealTypes,
       subLocations: subLocations.filter(s => s.label || s.address),
       pinnedDay: existing?.pinnedDay ?? null,
     };

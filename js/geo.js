@@ -67,11 +67,23 @@ function buildFallbackQueries(address) {
   return [...new Set(queries.map(q => q.trim()).filter(Boolean))];
 }
 
+// extratags=1を付けると、OSMに opening_hours タグが登録されている場所だけ営業時間も返ってくる。
+// 個人商店の多くはOSM側にタグが無く取得できないため、あくまで「取れたら使う」の位置づけ。
 async function nominatimSearch(query) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=${encodeURIComponent(query)}`;
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&extratags=1&q=${encodeURIComponent(query)}`;
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error("検索に失敗しました");
   return res.json();
+}
+
+function toResult(hit, approx) {
+  return {
+    lat: parseFloat(hit.lat),
+    lng: parseFloat(hit.lon),
+    displayName: hit.display_name,
+    openingHours: hit.extratags?.opening_hours || null,
+    approx,
+  };
 }
 
 // OpenStreetMap Nominatimで住所→緯度経度を取得(無料・APIキー不要)。
@@ -86,18 +98,35 @@ export async function geocodeAddress(address) {
   for (let i = 0; i < candidates.length; i++) {
     const data = await nominatimSearch(candidates[i]);
     if (data.length) {
-      const result = {
-        lat: parseFloat(data[0].lat),
-        lng: parseFloat(data[0].lon),
-        displayName: data[0].display_name,
-        approx: i > 0,
-      };
+      const result = toResult(data[0], i > 0);
       cache[key] = result;
       persistCache();
       return result;
     }
   }
   throw new Error("住所が見つかりませんでした。番地を省略して町名までで試すか、Googleマップで確認してください");
+}
+
+// 住所が分からない/未入力のときに、店名だけでOSM上の登録があるか探す。
+// OSMは全国の商店網羅DBではないため、有名スポットや観光地以外は見つからないことが多い。
+export async function geocodeByName(name) {
+  const key = name.trim();
+  if (!key) throw new Error("名前を入力してください");
+  const cacheKey = `name:${key}`;
+  const cache = getCache();
+  if (cache[cacheKey]) return cache[cacheKey];
+
+  const candidates = [key, `${key} 沖縄`, `${key} 沖縄県`];
+  for (const q of candidates) {
+    const data = await nominatimSearch(q);
+    if (data.length) {
+      const result = toResult(data[0], true);
+      cache[cacheKey] = result;
+      persistCache();
+      return result;
+    }
+  }
+  throw new Error("名前だけでは見つかりませんでした。住所を入力してください");
 }
 
 // GoogleマップはNominatimより日本の番地表記の解析が格段に強いため、

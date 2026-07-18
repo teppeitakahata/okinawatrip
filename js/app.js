@@ -22,7 +22,7 @@ function ensureScheduleShape(settings) {
     schedule = { days: [], unscheduled: [] };
   }
   while (schedule.days.length < numDays) {
-    schedule.days.push({ dayIndex: schedule.days.length, placeIds: [] });
+    schedule.days.push({ dayIndex: schedule.days.length, placeIds: [], startMin: toMinutes(settings.dayStart) });
   }
   schedule.days = schedule.days.slice(0, numDays);
   return schedule;
@@ -67,6 +67,7 @@ function renderTimeline() {
   const day = schedule.days[activeDay] || { placeIds: [] };
   const route = day.placeIds.map(id => placesById.get(id)).filter(Boolean);
   const hasBase = settings.base?.lat != null;
+  const effectiveStartMin = day.startMin ?? dayStartMin;
 
   if (!hasBase) {
     timelineEl.innerHTML = `<p class="empty-hint show">まず右上の⚙️「旅の設定」で拠点（ホテル）の住所を登録してください。</p>`;
@@ -75,11 +76,11 @@ function renderTimeline() {
     return;
   }
 
-  const timeline = computeDayTimeline(route, settings.base, dayStartMin);
+  const timeline = computeDayTimeline(route, settings.base, effectiveStartMin);
 
   let html = `
     <div class="tl-item">
-      <div class="tl-time">${minutesToHHMM(dayStartMin)}</div>
+      <div class="tl-time">${minutesToHHMM(effectiveStartMin)}</div>
       <div class="tl-line"><div class="tl-dot"></div><div class="tl-connector"></div></div>
       <div class="tl-card tl-base-card">
         <div class="tl-card-title">🏨 ${escapeHtml(settings.base.name || "拠点")} 出発</div>
