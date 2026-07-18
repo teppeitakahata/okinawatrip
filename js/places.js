@@ -31,6 +31,7 @@ export const PRIORITY_META = {
 
 let editingId = null;
 let subLocations = [];
+let isSaving = false; // 保存処理中の二重実行(=重複登録)を防ぐガード
 
 export function initPlacesUI({ onChange } = {}) {
   const listEl = document.getElementById("placeList");
@@ -256,9 +257,26 @@ export function initPlacesUI({ onChange } = {}) {
   }
 
   async function savePlace() {
+    if (isSaving) return; // 保存中の再クリックを無視（住所検索の待ち時間中の二重登録を防ぐ）
     const name = document.getElementById("pf-name").value.trim();
     if (!name) { toast("名前を入力してください"); return; }
     let address = document.getElementById("pf-address").value.trim();
+
+    const saveBtn = document.getElementById("pf-save");
+    isSaving = true;
+    saveBtn.disabled = true;
+    const savedLabel = saveBtn.textContent;
+    saveBtn.textContent = "保存中...";
+    try {
+      await doSave(name, address);
+    } finally {
+      isSaving = false;
+      saveBtn.disabled = false;
+      saveBtn.textContent = savedLabel;
+    }
+  }
+
+  async function doSave(name, address) {
     let lat = modal.dataset.lat ? Number(modal.dataset.lat) : null;
     let lng = modal.dataset.lng ? Number(modal.dataset.lng) : null;
 
