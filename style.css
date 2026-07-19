@@ -134,6 +134,7 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
 .place-card[data-category="activity"] { border-left-color: #ef4444; }
 .place-card[data-category="shopping"] { border-left-color: #ec4899; }
 .place-card[data-category="hotel"] { border-left-color: #64748b; }
+.place-card[data-category="home"] { border-left-color: #a8763e; }
 .place-card[data-category="other"] { border-left-color: #94a3b8; }
 
 .place-photo {
@@ -274,7 +275,18 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
   padding: 10px 12px;
   margin: 6px 0 10px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  border-left: 4px solid var(--teal);
 }
+
+/* 行きたい場所のカードと同じ配色をスケジュール側にも揃える */
+.tl-card[data-category="food"] { border-left-color: #f59e0b; }
+.tl-card[data-category="sight"] { border-left-color: #8b5cf6; }
+.tl-card[data-category="beach"] { border-left-color: #06b6d4; }
+.tl-card[data-category="activity"] { border-left-color: #ef4444; }
+.tl-card[data-category="shopping"] { border-left-color: #ec4899; }
+.tl-card[data-category="hotel"] { border-left-color: #64748b; }
+.tl-card[data-category="home"] { border-left-color: #a8763e; }
+.tl-card[data-category="other"] { border-left-color: #94a3b8; }
 
 .tl-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
 .tl-card-title { font-weight: 700; }

@@ -154,7 +154,7 @@ function renderTimeline() {
           <input type="time" class="tl-time-input" data-time="${it.entry.uid}" value="${escapeAttr(it.entry.time || "")}">
         </div>
         <div class="tl-line"><div class="tl-dot"></div><div class="tl-connector"></div></div>
-        <div class="tl-card">
+        <div class="tl-card" data-category="${p.category}">
           <div class="tl-card-top">
             <div>
               <div class="tl-card-title">${cat.icon} ${escapeHtml(p.name)}</div>
