@@ -4,7 +4,15 @@ const KEYS = {
   schedule: "okinawa-trip.schedule",
 };
 
-function load(key, fallback) {
+const DEFAULT_SETTINGS = {
+  startDate: "",
+  days: 5,
+  base: { name: "", address: "", lat: null, lng: null },
+  dayStart: "09:00",
+  dayEnd: "19:00",
+};
+
+function loadLocal(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
@@ -13,36 +21,95 @@ function load(key, fallback) {
   }
 }
 
-function save(key, value) {
+function saveLocal(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-export const store = {
-  getPlaces() { return load(KEYS.places, []); },
-  setPlaces(places) { save(KEYS.places, places); },
-
-  getSettings() {
-    return load(KEYS.settings, {
-      startDate: "",
-      days: 5,
-      base: { name: "", address: "", lat: null, lng: null },
-      dayStart: "09:00",
-      dayEnd: "19:00",
-    });
-  },
-  setSettings(settings) { save(KEYS.settings, settings); },
-
-  getSchedule() { return load(KEYS.schedule, null); },
-  setSchedule(schedule) { save(KEYS.schedule, schedule); },
+// サーバー(家族で共有するデータベース)とブラウザのlocalStorage(オフライン用の
+// 手元コピー)の両方を持つ。読み取りは常にこのメモリ上のキャッシュから即時に
+// 返すので、既存の呼び出し側(app.js/places.js)は同期APIのままで変更不要。
+let cache = {
+  places: loadLocal(KEYS.places, []),
+  settings: loadLocal(KEYS.settings, DEFAULT_SETTINGS),
+  schedule: loadLocal(KEYS.schedule, null),
 };
+
+async function pushToServer(key, value) {
+  try {
+    const res = await fetch(`/api/${key}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (e) {
+    console.warn(`サーバーへの保存に失敗しました(${key})。ローカルには保存済みです。`, e);
+  }
+}
+
+export const store = {
+  getPlaces() { return cache.places; },
+  setPlaces(places) { cache.places = places; saveLocal(KEYS.places, places); pushToServer("places", places); },
+
+  getSettings() { return cache.settings; },
+  setSettings(settings) { cache.settings = settings; saveLocal(KEYS.settings, settings); pushToServer("settings", settings); },
+
+  getSchedule() { return cache.schedule; },
+  setSchedule(schedule) { cache.schedule = schedule; saveLocal(KEYS.schedule, schedule); pushToServer("schedule", schedule); },
+};
+
+function applyRemote(data) {
+  cache = {
+    places: data.places ?? [],
+    settings: data.settings ?? DEFAULT_SETTINGS,
+    schedule: data.schedule ?? null,
+  };
+  saveLocal(KEYS.places, cache.places);
+  saveLocal(KEYS.settings, cache.settings);
+  saveLocal(KEYS.schedule, cache.schedule);
+}
+
+// ページ起動時に一度だけ呼び、サーバー上の最新データでローカルの手元コピーを
+// 上書きする。オフライン等で失敗した場合は、localStorageの手元コピーのまま動く。
+export async function initFromServer() {
+  try {
+    const res = await fetch("/api/data");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    applyRemote(await res.json());
+  } catch (e) {
+    console.warn("サーバーからの読み込みに失敗しました。ローカルのデータを使用します。", e);
+  }
+}
+
+const remoteUpdateListeners = [];
+export function onRemoteUpdate(cb) {
+  remoteUpdateListeners.push(cb);
+}
+
+let pollTimer = null;
+// 他の端末(家族)が加えた変更を定期的に取り込む。開いている画面がある間だけでよい。
+export function startPolling(intervalMs = 20000) {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch("/api/data");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (JSON.stringify(data) === JSON.stringify(cache)) return;
+      applyRemote(data);
+      remoteUpdateListeners.forEach(cb => cb());
+    } catch {
+      // オフライン等。次のポーリングで再試行する。
+    }
+  }, intervalMs);
+}
 
 export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-// このアプリはサーバーを持たず、データは端末のブラウザにしか保存されない。
-// SafariはサイトのデータをiOSの仕様(ITP)で自動削除することがあるため、
-// 手元にJSONファイルとして書き出し/読み込みできるバックアップ機能を用意する。
+// このアプリのデータは家族で共有するサーバーに保存されるが、念のため手元にも
+// JSONファイルとして書き出し/読み込みできるバックアップ機能を用意する。
 export function exportAll() {
   return JSON.stringify({
     kind: "okinawa-trip-backup",

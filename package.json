@@ -1,0 +1,27 @@
+{
+  "name": "okinawa-trip",
+  "version": "1.0.0",
+  "description": "沖縄旅行用の、日ごとスケジュール型しおりアプリ。ビルド不要の静的HTML/CSS/JSのみで動作し、GitHub PagesでそのままPWA公開できます。",
+  "main": "sw.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teppeitakahata/okinawatrip.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/teppeitakahata/okinawatrip/issues"
+  },
+  "homepage": "https://github.com/teppeitakahata/okinawatrip#readme",
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1"
+  }
+}

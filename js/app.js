@@ -1,4 +1,4 @@
-import { store, dedupePlaces, uid, exportAll, importAll } from "./storage.js";
+import { store, dedupePlaces, uid, exportAll, importAll, initFromServer, onRemoteUpdate, startPolling } from "./storage.js";
 import { geocodeAddress, googleMapsUrl, googleMapsDirectionsUrl, driveMinutes } from "./geo.js";
 import { initPlacesUI, CATEGORY_META, TRANSPORT_META } from "./places.js";
 import { computeManualDay, parseHHMM, minutesToHHMM } from "./scheduler.js";
@@ -410,10 +410,13 @@ function initSettingsUI() {
   });
 }
 
-function init() {
+async function init() {
   document.getElementById("mainTabs").querySelectorAll(".tab-btn").forEach(btn =>
     btn.addEventListener("click", () => switchMainTab(btn.dataset.view))
   );
+
+  // 家族の他の端末が保存した最新データを先に取り込んでから画面を作る
+  await initFromServer();
 
   const removed = dedupePlaces();
   if (removed > 0) toast(`重複していた${removed}件を自動で整理しました`);
@@ -426,6 +429,14 @@ function init() {
   if (!store.getSettings().base?.address) {
     switchMainTab("wishlist");
   }
+
+  // 他の端末(家族)が加えた変更を定期的に反映する
+  onRemoteUpdate(() => {
+    renderDayTabs();
+    renderTimeline();
+    placesUI.renderList();
+  });
+  startPolling(20000);
 }
 
 init();
