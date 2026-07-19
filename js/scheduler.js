@@ -27,25 +27,22 @@ function carLeg(from, to) {
 // 手動で入力された各予定の時刻をもとに、その日のタイムラインと
 // 「予定から予定の間の時間に無理がないか」だけを判定する。
 // - route:  その日の予定(場所オブジェクト)の配列(ユーザーが並べた順)
-// - base:   拠点(ホテル等)。startsAtBase/endsAtBase の時のみ使う
 // - times:  { [placeId]: "HH:MM" } ユーザーが入力した開始時刻
-// - opts:   { startsAtBase, endsAtBase }
-export function computeManualDay(route, base, times, opts = {}) {
-  const { startsAtBase = true, endsAtBase = true } = opts;
+export function computeManualDay(route, times) {
   const items = route.map((stop, i) => {
     const t = times[stop.id];
     const startMin = (t != null && t !== "") ? parseHHMM(t) : null;
     const durationMin = stop.durationMin || 30;
     const endMin = startMin != null ? startMin + durationMin : null;
 
-    const from = i === 0 ? (startsAtBase ? base : null) : route[i - 1];
+    // 移動区間は「予定 → 次の予定」の間だけ。最初の予定には移動区間を付けない。
+    const from = i > 0 ? route[i - 1] : null;
     const leg = from ? carLeg(from, stop) : { travelMin: 0, distanceKm: 0, mode: stop.arrivalMode || "car", estimated: false };
 
     return {
       place: stop, startMin, endMin, durationMin,
       travelMin: leg.travelMin, distanceKm: leg.distanceKm, mode: leg.mode, estimated: leg.estimated,
-      hasLeg: i > 0 || startsAtBase,
-      // 前の予定との時間の妥当性(下で埋める)
+      hasLeg: i > 0,
       warning: null,
       freeGapMin: null,
     };
@@ -74,30 +71,5 @@ export function computeManualDay(route, base, times, opts = {}) {
     }
   }
 
-  // 拠点発着の目安時刻(情報表示のみ・チェックはしない)
-  let baseDepart = null, baseReturn = null;
-  const first = items[0];
-  const last = items[items.length - 1];
-  if (startsAtBase && first && first.startMin != null && first.estimated) {
-    baseDepart = first.startMin - first.travelMin;
-  }
-  if (endsAtBase && last && last.endMin != null && hasCoords(last.place) && hasCoords(base)) {
-    baseReturn = last.endMin + driveMinutes(last.place, base);
-  }
-
-  return { items, baseDepart, baseReturn };
-}
-
-// 新しい予定を日に追加するときの初期時刻の目安(前の予定の終了＋移動、無ければ拠点発の時刻)。
-export function suggestNextTime(route, base, times, dayStartMin, opts = {}) {
-  const { startsAtBase = true } = opts;
-  if (!route.length) {
-    // 最初の予定: 拠点発なら「開始時刻＋拠点からの移動」、そうでなければ開始時刻
-    return dayStartMin;
-  }
-  const prev = route[route.length - 1];
-  const t = times[prev.id];
-  if (t == null || t === "") return dayStartMin;
-  const prevEnd = parseHHMM(t) + (prev.durationMin || 30);
-  return prevEnd; // 移動時間は追加先の場所が決まってから加味するため、ここでは終了時刻を目安に
+  return { items };
 }
