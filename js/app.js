@@ -1,8 +1,8 @@
 import { store, dedupePlaces } from "./storage.js";
-import { geocodeAddress, googleMapsUrl, googleMapsDirectionsUrl } from "./geo.js";
+import { geocodeAddress, googleMapsUrl, googleMapsDirectionsUrl, driveMinutes } from "./geo.js";
 import { initPlacesUI, CATEGORY_META, TRANSPORT_META } from "./places.js";
-import { buildSchedule, rebuildDay, computeDayTimeline, resolveDayStartMin, minutesToHHMM } from "./scheduler.js";
-import { toast, confirmDialog } from "./ui-helpers.js";
+import { computeManualDay, parseHHMM, minutesToHHMM } from "./scheduler.js";
+import { toast } from "./ui-helpers.js";
 
 let placesUI = null;
 
@@ -21,16 +21,16 @@ function ensureScheduleShape(settings) {
   let schedule = store.getSchedule();
   const numDays = Math.max(1, Number(settings.days) || 1);
   if (!schedule || !Array.isArray(schedule.days)) {
-    schedule = { days: [], unscheduled: [] };
+    schedule = { days: [] };
   }
   while (schedule.days.length < numDays) {
-    schedule.days.push({ dayIndex: schedule.days.length, placeIds: [], startMin: toMinutes(settings.dayStart) });
+    schedule.days.push({ dayIndex: schedule.days.length, placeIds: [], startTimes: {} });
   }
   schedule.days = schedule.days.slice(0, numDays);
-  // 拠点発着フラグの既定値(未設定=true)を補う
   schedule.days.forEach(d => {
     if (d.startsAtBase === undefined) d.startsAtBase = true;
     if (d.endsAtBase === undefined) d.endsAtBase = true;
+    if (!d.startTimes) d.startTimes = {};
   });
   return schedule;
 }
@@ -61,89 +61,117 @@ function renderDayTabs() {
   );
 }
 
+// 新しく日程に追加する予定の、開始時刻の初期値を決める。
+// 固定時刻があればそれ、無ければ「前の予定の終了＋移動」または拠点発の目安。
+function assignPlaceToDay(schedule, dayIdx, placeId, settings) {
+  const day = schedule.days[dayIdx];
+  if (day.placeIds.includes(placeId)) return;
+  const placesById = getPlacesById();
+  const newPlace = placesById.get(placeId);
+  const route = day.placeIds.map(id => placesById.get(id)).filter(Boolean);
+  const dayStartMin = toMinutes(settings.dayStart);
+  const byCar = (newPlace?.arrivalMode || "car") === "car";
+
+  let suggested;
+  if (route.length === 0) {
+    let travel = 0;
+    if (day.startsAtBase !== false && byCar && newPlace?.lat != null && settings.base?.lat != null) {
+      travel = driveMinutes(settings.base, newPlace);
+    }
+    suggested = dayStartMin + travel;
+  } else {
+    const prev = route[route.length - 1];
+    const pt = day.startTimes[prev.id];
+    const prevEnd = (pt ? parseHHMM(pt) : dayStartMin) + (prev.durationMin || 30);
+    let travel = 0;
+    if (byCar && prev.lat != null && newPlace?.lat != null) travel = driveMinutes(prev, newPlace);
+    suggested = prevEnd + travel;
+  }
+
+  day.placeIds.push(placeId);
+  day.startTimes[placeId] = newPlace?.fixedTime ? newPlace.fixedTime : minutesToHHMM(suggested);
+}
+
 function renderTimeline() {
   const settings = store.getSettings();
   const schedule = ensureScheduleShape(settings);
   const placesById = getPlacesById();
-  const dayStartMin = toMinutes(settings.dayStart);
   const dayEndMin = toMinutes(settings.dayEnd);
   const timelineEl = document.getElementById("dayTimeline");
   const warnEl = document.getElementById("dayWarning");
-  const unschedEl = document.getElementById("unscheduledBanner");
 
-  const day = schedule.days[activeDay] || { placeIds: [] };
+  const day = schedule.days[activeDay] || { placeIds: [], startTimes: {} };
   const route = day.placeIds.map(id => placesById.get(id)).filter(Boolean);
   const hasBase = settings.base?.lat != null;
   const dayOpts = { startsAtBase: day.startsAtBase !== false, endsAtBase: day.endsAtBase !== false };
+  const baseName = escapeHtml(settings.base?.name || "拠点");
 
-  if (!hasBase) {
-    timelineEl.innerHTML = `<p class="empty-hint show">まず右上の⚙️「旅の設定」で拠点（ホテル）の住所を登録してください。</p>`;
-    warnEl.hidden = true;
-    unschedEl.hidden = true;
-    return;
-  }
-
-  // 手動追加/並べ替え後でも先頭の予定が希望の時間帯に入るよう、毎回出発時刻を計算し直す
-  const effectiveStartMin = resolveDayStartMin(route, settings.base, dayStartMin, dayEndMin, dayOpts);
-  const timeline = computeDayTimeline(route, settings.base, effectiveStartMin, dayOpts);
-  const baseName = escapeHtml(settings.base.name || "拠点");
+  const { items, baseDepart, baseReturn } = computeManualDay(route, settings.base, day.startTimes || {}, dayOpts);
 
   let html = `
     <div class="day-base-toggles">
       <label><input type="checkbox" id="startsAtBaseChk" ${dayOpts.startsAtBase ? "checked" : ""}> 朝、${baseName}から出発する</label>
       <label><input type="checkbox" id="endsAtBaseChk" ${dayOpts.endsAtBase ? "checked" : ""}> 夜、${baseName}に戻る</label>
-      <p class="hint">初日（空港着）や最終日（空港発）など、ホテル発着でない日はチェックを外してください。</p>
+      <p class="hint">初日（空港着）や最終日（空港発）など、ホテル発着でない日はチェックを外してください。各予定の時刻は自分で入力できます。アプリは予定どうしの間隔に無理がないかだけを確認します。</p>
     </div>`;
 
-  if (dayOpts.startsAtBase) {
+  if (dayOpts.startsAtBase && hasBase) {
     html += `
       <div class="tl-item">
-        <div class="tl-time">${minutesToHHMM(effectiveStartMin)}</div>
+        <div class="tl-time">${baseDepart != null ? minutesToHHMM(baseDepart) : "—"}</div>
         <div class="tl-line"><div class="tl-dot"></div><div class="tl-connector"></div></div>
         <div class="tl-card tl-base-card">
           <div class="tl-card-title">🏨 ${baseName} 出発</div>
+          ${baseDepart != null ? `<div class="tl-card-sub">最初の予定に間に合う出発の目安: ${minutesToHHMM(baseDepart)}頃</div>` : ""}
         </div>
       </div>`;
   }
 
-  timeline.items.forEach((it, idx) => {
+  items.forEach((it, idx) => {
     const p = it.place;
     const cat = CATEGORY_META[p.category] || CATEGORY_META.other;
-    const fixedNote = p.fixedTime
-      ? it.late
-        ? `<div class="tl-card-note warn">⚠ この予定は${p.fixedTime}固定ですが、前の予定からだと到着が遅れる見込みです。順番を調整してください。</div>`
-        : `<div class="tl-card-note">⏰ ${p.fixedTime}に固定（早く着く場合は時間まで待機）</div>`
-      : "";
     const hasCoords = p.lat != null && p.lng != null;
-    const mode = p.arrivalMode || "car";
-    // 出発地点(この区間の始点)がある日だけ移動区間を表示する
-    const hasLeg = idx > 0 || dayOpts.startsAtBase;
-    if (hasLeg) {
-      if (mode === "car") {
-        if (it.travelMin > 0) {
+
+    if (it.hasLeg) {
+      if (it.mode === "car") {
+        if (it.estimated) {
           html += `<div class="tl-travel">🚗 車で約${it.travelMin}分（約${Math.round(it.distanceKm * 10) / 10}km・推定）</div>`;
+        } else {
+          html += `<div class="tl-travel">🚗 車で移動（距離を計算できません）</div>`;
         }
       } else {
-        const tm = TRANSPORT_META[mode] || TRANSPORT_META.other;
+        const tm = TRANSPORT_META[it.mode] || TRANSPORT_META.other;
         html += `<div class="tl-travel">${tm.icon} ${tm.label}で移動</div>`;
       }
     }
+
+    const gapNote = it.warning
+      ? `<div class="tl-card-note warn">⚠ ${escapeHtml(it.warning)}</div>`
+      : (it.freeGapMin != null && it.freeGapMin >= 30
+          ? `<div class="tl-card-note">🕒 前の予定から約${it.freeGapMin}分の空き時間があります。</div>`
+          : "");
+
+    const endLabel = it.endMin != null ? `〜 ${minutesToHHMM(it.endMin)}` : "";
     const mapLinks = [];
     if (hasCoords) {
       mapLinks.push(`<a href="${googleMapsUrl(p)}" target="_blank" rel="noopener">🗺️ 地図</a>`);
-      if (mode === "car") {
-        mapLinks.push(`<a href="${googleMapsDirectionsUrl(idx === 0 ? settings.base : timeline.items[idx - 1].place, p)}" target="_blank" rel="noopener">🚗 ここまでのルート</a>`);
+      if (it.mode === "car" && it.hasLeg) {
+        const from = idx === 0 ? settings.base : items[idx - 1].place;
+        mapLinks.push(`<a href="${googleMapsDirectionsUrl(from, p)}" target="_blank" rel="noopener">🚗 ここまでのルート</a>`);
       }
     }
+
     html += `
-      <div class="tl-item" data-place-id="${p.id}">
-        <div class="tl-time">${minutesToHHMM(it.arrival)}</div>
+      <div class="tl-item ${it.warning ? "tl-item-warn" : ""}" data-place-id="${p.id}">
+        <div class="tl-time">
+          <input type="time" class="tl-time-input" data-time="${p.id}" value="${escapeAttr(day.startTimes[p.id] || "")}">
+        </div>
         <div class="tl-line"><div class="tl-dot"></div><div class="tl-connector"></div></div>
         <div class="tl-card">
           <div class="tl-card-top">
             <div>
               <div class="tl-card-title">${cat.icon} ${escapeHtml(p.name)}</div>
-              <div class="tl-card-sub">${minutesToHHMM(it.arrival)} 〜 ${minutesToHHMM(it.departure)}（滞在${p.durationMin}分）${p.hours ? " ・ " + escapeHtml(p.hours) : ""}</div>
+              <div class="tl-card-sub">滞在${p.durationMin}分 ${endLabel}${p.hours ? " ・ " + escapeHtml(p.hours) : ""}</div>
             </div>
             <div class="tl-controls">
               <button data-act="up" data-idx="${idx}" aria-label="上へ">▲</button>
@@ -151,7 +179,7 @@ function renderTimeline() {
               <button data-act="remove" data-idx="${idx}" aria-label="外す">✕</button>
             </div>
           </div>
-          ${fixedNote}
+          ${gapNote}
           ${p.note ? `<div class="tl-card-note">💡 ${escapeHtml(p.note)}</div>` : ""}
           ${subLocsHtml(p)}
           ${mapLinks.length ? `<div class="map-links">${mapLinks.join("")}</div>` : ""}
@@ -162,16 +190,14 @@ function renderTimeline() {
       </div>`;
   });
 
-  if (dayOpts.endsAtBase) {
-    if (timeline.travelBackMin > 0) {
-      html += `<div class="tl-travel">🚗 車で約${timeline.travelBackMin}分で${baseName}へ</div>`;
-    }
+  if (dayOpts.endsAtBase && hasBase) {
     html += `
       <div class="tl-item">
-        <div class="tl-time">${minutesToHHMM(timeline.returnTime)}</div>
+        <div class="tl-time">${baseReturn != null ? minutesToHHMM(baseReturn) : "—"}</div>
         <div class="tl-line"><div class="tl-dot"></div></div>
         <div class="tl-card tl-base-card">
           <div class="tl-card-title">🏨 ${baseName} 帰着</div>
+          ${baseReturn != null ? `<div class="tl-card-sub">最後の予定からの帰着目安: ${minutesToHHMM(baseReturn)}頃</div>` : ""}
         </div>
       </div>`;
   }
@@ -196,24 +222,26 @@ function renderTimeline() {
 
   timelineEl.innerHTML = html;
 
-  if (timeline.returnTime > dayEndMin + 15) {
+  // 全体の注意サマリー
+  const conflictCount = items.filter(it => it.warning).length;
+  const missingTime = items.filter(it => it.startMin == null).length;
+  const overEnd = baseReturn != null && baseReturn > dayEndMin + 15;
+  const notes = [];
+  if (conflictCount) notes.push(`時間に無理がある区間が${conflictCount}件あります（赤い注意を確認）`);
+  if (missingTime) notes.push(`時刻が未入力の予定が${missingTime}件あります`);
+  if (overEnd) notes.push(`帰着が終了時刻(${settings.dayEnd})を超える見込みです`);
+  if (notes.length) {
     warnEl.hidden = false;
-    const tail = dayOpts.endsAtBase ? `${baseName}帰着` : "最後の予定終了";
-    warnEl.textContent = `⚠ ${tail}が${minutesToHHMM(timeline.returnTime)}頃になり、設定した終了時刻(${settings.dayEnd})を超える見込みです。予定を減らすか、AIで再作成してください。`;
+    warnEl.textContent = "⚠ " + notes.join(" / ");
   } else {
     warnEl.hidden = true;
   }
 
-  const lastUnscheduled = schedule.unscheduled || [];
-  if (lastUnscheduled.length) {
-    unschedEl.hidden = false;
-    unschedEl.innerHTML = "⚠ 組み込めなかった場所:<br>" + lastUnscheduled.map(u => {
-      const p = placesById.get(u.placeId);
-      return `・${escapeHtml(p?.name || "?")} — ${escapeHtml(u.reason)}`;
-    }).join("<br>");
-  } else {
-    unschedEl.hidden = true;
-  }
+  wireTimelineEvents(schedule, settings);
+}
+
+function wireTimelineEvents(schedule, settings) {
+  const timelineEl = document.getElementById("dayTimeline");
 
   const startsChk = document.getElementById("startsAtBaseChk");
   const endsChk = document.getElementById("endsAtBaseChk");
@@ -228,6 +256,14 @@ function renderTimeline() {
     renderTimeline();
   });
 
+  timelineEl.querySelectorAll("[data-time]").forEach(inp => {
+    inp.addEventListener("change", () => {
+      schedule.days[activeDay].startTimes[inp.dataset.time] = inp.value;
+      store.setSchedule(schedule);
+      renderTimeline();
+    });
+  });
+
   timelineEl.querySelectorAll("[data-act]").forEach(btn => {
     btn.addEventListener("click", () => {
       const idx = Number(btn.dataset.idx);
@@ -235,7 +271,10 @@ function renderTimeline() {
       const ids = schedule.days[activeDay].placeIds;
       if (act === "up" && idx > 0) [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
       if (act === "down" && idx < ids.length - 1) [ids[idx + 1], ids[idx]] = [ids[idx], ids[idx + 1]];
-      if (act === "remove") ids.splice(idx, 1);
+      if (act === "remove") {
+        const [removed] = ids.splice(idx, 1);
+        delete schedule.days[activeDay].startTimes[removed];
+      }
       store.setSchedule(schedule);
       renderTimeline();
     });
@@ -247,7 +286,10 @@ function renderTimeline() {
       const targetDay = Number(sel.value);
       if (targetDay === activeDay) return;
       const [placeId] = schedule.days[activeDay].placeIds.splice(idx, 1);
+      const time = schedule.days[activeDay].startTimes[placeId];
+      delete schedule.days[activeDay].startTimes[placeId];
       schedule.days[targetDay].placeIds.push(placeId);
+      if (time) schedule.days[targetDay].startTimes[placeId] = time;
       store.setSchedule(schedule);
       renderTimeline();
       toast(`${formatDayLabel(settings, targetDay)}に移動しました`);
@@ -256,8 +298,7 @@ function renderTimeline() {
 
   timelineEl.querySelectorAll("[data-add-to-day]").forEach(btn => {
     btn.addEventListener("click", () => {
-      schedule.days[activeDay].placeIds.push(btn.dataset.addToDay);
-      schedule.unscheduled = (schedule.unscheduled || []).filter(u => u.placeId !== btn.dataset.addToDay);
+      assignPlaceToDay(schedule, activeDay, btn.dataset.addToDay, settings);
       store.setSchedule(schedule);
       renderTimeline();
     });
@@ -266,17 +307,10 @@ function renderTimeline() {
   const manualBtn = document.getElementById("manualAddBtn");
   if (manualBtn) {
     manualBtn.addEventListener("click", () => {
-      if (settings.base?.lat == null) {
-        toast("先に「旅の設定」で拠点の住所を保存してください");
-        return;
-      }
       const targetDay = activeDay;
-      // 場所の追加モーダルを開き、保存されたらその新規予定をこの日に割り当てる
       placesUI.openModal(null, savedId => {
         const sch = ensureScheduleShape(store.getSettings());
-        if (!sch.days[targetDay].placeIds.includes(savedId)) {
-          sch.days[targetDay].placeIds.push(savedId);
-        }
+        assignPlaceToDay(sch, targetDay, savedId, store.getSettings());
         store.setSchedule(sch);
         switchMainTab("schedule");
         activeDay = targetDay;
@@ -305,64 +339,7 @@ function toMinutes(hhmm) {
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-
-async function runAiBuild() {
-  const settings = store.getSettings();
-  if (settings.base?.lat == null) {
-    toast("先に「旅の設定」で拠点の住所を検索・保存してください");
-    openSettingsModal();
-    return;
-  }
-  const places = store.getPlaces();
-  if (!places.length) {
-    toast("行きたい場所をまず登録してください");
-    return;
-  }
-  const existing = store.getSchedule();
-  const hasContent = existing?.days?.some(d => d.placeIds?.length);
-  if (hasContent) {
-    const ok = await confirmDialog("既存の日程を上書きしてAIで再作成します。よろしいですか？", { okLabel: "再作成する" });
-    if (!ok) return;
-  }
-
-  // 各日の「拠点発着」設定はAI再作成でも維持する
-  const shaped = ensureScheduleShape(settings);
-  const dayOptions = shaped.days.map(d => ({ startsAtBase: d.startsAtBase !== false, endsAtBase: d.endsAtBase !== false }));
-
-  const result = buildSchedule({ places, settings, dayOptions });
-  store.setSchedule(result);
-  activeDay = 0;
-  renderDayTabs();
-  renderTimeline();
-  toast("日程を作成しました");
-}
-
-function runRebuildDay() {
-  const settings = store.getSettings();
-  if (settings.base?.lat == null) {
-    toast("先に「旅の設定」で拠点の住所を検索・保存してください");
-    return;
-  }
-  const schedule = ensureScheduleShape(settings);
-  const places = store.getPlaces();
-
-  const result = rebuildDay({ dayIndex: activeDay, places, schedule, settings });
-  schedule.days[activeDay] = {
-    dayIndex: result.dayIndex, placeIds: result.placeIds, startMin: result.startMin,
-    startsAtBase: result.startsAtBase, endsAtBase: result.endsAtBase,
-  };
-
-  const allPlacedIds = new Set(schedule.days.flatMap(d => d.placeIds));
-  const otherUnscheduled = (schedule.unscheduled || []).filter(u => !allPlacedIds.has(u.placeId));
-  result.unscheduled.forEach(u => {
-    if (!otherUnscheduled.some(x => x.placeId === u.placeId)) otherUnscheduled.push(u);
-  });
-  schedule.unscheduled = otherUnscheduled;
-
-  store.setSchedule(schedule);
-  renderTimeline();
-  toast("この日をAIで再調整しました");
-}
+function escapeAttr(str) { return escapeHtml(str); }
 
 function openSettingsModal() {
   const s = store.getSettings();
@@ -437,10 +414,7 @@ function init() {
   document.getElementById("mainTabs").querySelectorAll(".tab-btn").forEach(btn =>
     btn.addEventListener("click", () => switchMainTab(btn.dataset.view))
   );
-  document.getElementById("aiBuildBtn").addEventListener("click", runAiBuild);
-  document.getElementById("rebuildDayBtn").addEventListener("click", runRebuildDay);
 
-  // 過去の二重登録バグで残った完全重複を起動時に一度だけ整理する
   const removed = dedupePlaces();
   if (removed > 0) toast(`重複していた${removed}件を自動で整理しました`);
 

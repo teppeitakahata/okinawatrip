@@ -274,7 +274,18 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
 .tl-card-title { font-weight: 700; }
 .tl-card-sub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
 .tl-card-note { font-size: 0.8rem; margin-top: 6px; color: var(--ink); }
-.tl-card-note.warn { color: #8a6d1a; font-weight: 600; }
+.tl-card-note.warn { color: var(--danger); font-weight: 600; }
+
+.tl-time-input {
+  width: 74px;
+  padding: 4px 6px;
+  font-size: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 8px;
+}
+.tl-item-warn .tl-card { border: 1px solid var(--danger); }
+.tl-item-warn .tl-dot { background: var(--danger); }
 
 .tl-travel {
   font-size: 0.76rem;

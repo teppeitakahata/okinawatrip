@@ -37,17 +37,8 @@
 
   <!-- ===== 日程 ===== -->
   <section id="view-schedule" class="view">
-    <div class="section-toolbar">
-      <button id="aiBuildBtn" class="btn primary">✨ AIで日程を自動作成</button>
-      <span id="aiStatus" class="muted"></span>
-    </div>
     <div class="day-tabs" id="dayTabs"></div>
-    <div class="section-toolbar">
-      <button id="rebuildDayBtn" class="btn">🤖 この日をAIで再調整</button>
-      <span class="muted">気に入らない予定を✕で外す/移動してから押すと、残りを最適な順序に組み直し、空いた時間に他の候補を提案します。</span>
-    </div>
     <div id="dayWarning" class="warning-banner" hidden></div>
-    <div id="unscheduledBanner" class="warning-banner" hidden></div>
     <div id="dayTimeline" class="timeline"></div>
     <p class="estimate-note">※ 移動時間は直線距離から推定した参考値です。実際のルート・時間は必ずGoogleマップ等でご確認ください。</p>
   </section>

@@ -1,6 +1,6 @@
 // バージョンを上げるたびに、新しいService Workerが古いキャッシュを破棄して入れ替わる。
 // 更新を配信したいときはこの文字列を必ず上げること（例: v5 → v6）。
-const CACHE = "okinawa-trip-v10";
+const CACHE = "okinawa-trip-v12";
 const ASSETS = [
   "./",
   "./index.html",
@@ -32,17 +32,18 @@ self.addEventListener("activate", e => {
 
 // ネットワーク優先(network-first): オンライン時は常に最新を取得し、取得できたら
 // キャッシュも更新する。オフライン時のみキャッシュ済みのコピーを返す。
-// これにより、キャッシュ版が古いまま固定されて更新が届かない問題を防ぐ。
 //
-// 重要: fetch(e.request) をそのまま呼ぶと、ブラウザのHTTPキャッシュ
-// (GitHub Pagesは max-age=600 を返す)から古い応答が返り、実質ネットワークに
-// 到達しないことがある。cache:"reload" でHTTPキャッシュを必ずバイパスし、
-// 毎回サーバーの最新を取得する。
+// 重要: cache:"reload" はナビゲーション要求("/"へのアクセス等)では無視される
+// ことがあり、ブラウザのHTTPキャッシュから古いindex.htmlが返ってしまう。
+// そこでネットワーク取得だけURLにユニークなクエリ(_cb)を付け、HTTPキャッシュを
+// 確実に迂回して毎回サーバーの最新を取る。保存・オフライン照合は元のURLで行う。
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
-  if (new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  if (url.origin !== location.origin) return;
+  const bustUrl = url.pathname + url.search + (url.search ? "&" : "?") + "_cb=" + Date.now();
   e.respondWith(
-    fetch(e.request, { cache: "reload" })
+    fetch(bustUrl, { cache: "reload" })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));
