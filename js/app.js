@@ -1,6 +1,6 @@
 import { store, dedupePlaces } from "./storage.js";
 import { geocodeAddress, googleMapsUrl, googleMapsDirectionsUrl } from "./geo.js";
-import { initPlacesUI, CATEGORY_META } from "./places.js";
+import { initPlacesUI, CATEGORY_META, TRANSPORT_META } from "./places.js";
 import { buildSchedule, rebuildDay, computeDayTimeline, resolveDayStartMin, minutesToHHMM } from "./scheduler.js";
 import { toast, confirmDialog } from "./ui-helpers.js";
 
@@ -115,13 +115,25 @@ function renderTimeline() {
         : `<div class="tl-card-note">⏰ ${p.fixedTime}に固定（早く着く場合は時間まで待機）</div>`
       : "";
     const hasCoords = p.lat != null && p.lng != null;
-    if (it.travelMin > 0) {
-      html += `<div class="tl-travel">🚗 車で約${it.travelMin}分（約${Math.round(it.distanceKm * 10) / 10}km・推定）</div>`;
+    const mode = p.arrivalMode || "car";
+    // 出発地点(この区間の始点)がある日だけ移動区間を表示する
+    const hasLeg = idx > 0 || dayOpts.startsAtBase;
+    if (hasLeg) {
+      if (mode === "car") {
+        if (it.travelMin > 0) {
+          html += `<div class="tl-travel">🚗 車で約${it.travelMin}分（約${Math.round(it.distanceKm * 10) / 10}km・推定）</div>`;
+        }
+      } else {
+        const tm = TRANSPORT_META[mode] || TRANSPORT_META.other;
+        html += `<div class="tl-travel">${tm.icon} ${tm.label}で移動</div>`;
+      }
     }
     const mapLinks = [];
     if (hasCoords) {
       mapLinks.push(`<a href="${googleMapsUrl(p)}" target="_blank" rel="noopener">🗺️ 地図</a>`);
-      mapLinks.push(`<a href="${googleMapsDirectionsUrl(idx === 0 ? settings.base : timeline.items[idx - 1].place, p)}" target="_blank" rel="noopener">🚗 ここまでのルート</a>`);
+      if (mode === "car") {
+        mapLinks.push(`<a href="${googleMapsDirectionsUrl(idx === 0 ? settings.base : timeline.items[idx - 1].place, p)}" target="_blank" rel="noopener">🚗 ここまでのルート</a>`);
+      }
     }
     html += `
       <div class="tl-item" data-place-id="${p.id}">

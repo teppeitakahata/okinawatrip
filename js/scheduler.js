@@ -145,8 +145,10 @@ export function computeDayTimeline(route, base, dayStartMin, opts = {}) {
   let time = dayStartMin;
   let prev = startsAtBase ? base : null;
   for (const stop of route) {
-    // 拠点発でない初回や、緯度経度が無い予定は移動距離・時間を0として扱う
-    const canMeasure = hasCoords(prev) && hasCoords(stop);
+    // 車以外(飛行機/電車/徒歩)の区間、拠点発でない初回、緯度経度が無い予定は
+    // 車の移動距離・時間を推定しない(0扱い)。飛行機は基本的に固定時刻で到着が決まる。
+    const byCar = (stop.arrivalMode || "car") === "car";
+    const canMeasure = byCar && hasCoords(prev) && hasCoords(stop);
     const km = canMeasure ? haversineKm(prev, stop) : 0;
     const travelMin = canMeasure ? driveMinutes(prev, stop) : 0;
     const naturalArrival = time + travelMin;

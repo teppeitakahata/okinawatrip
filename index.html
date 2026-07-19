@@ -109,6 +109,18 @@
       </div>
 
       <label class="field">
+        <span>この場所への移動手段</span>
+        <select id="pf-arrival-mode">
+          <option value="car">🚗 車</option>
+          <option value="plane">✈️ 飛行機</option>
+          <option value="monorail">🚝 ゆいレール・電車</option>
+          <option value="walk">🚶 徒歩</option>
+          <option value="other">➡️ その他</option>
+        </select>
+        <p class="hint">飛行機・ゆいレールなどで移動する区間は、車の所要時間を表示しません。例：那覇空港を「飛行機」にすると、羽田→那覇が「✈️ 飛行機で移動」になります。</p>
+      </label>
+
+      <label class="field">
         <span>参考URL（公式サイトなど・任意）</span>
         <input type="text" id="pf-url" placeholder="https://...">
       </label>

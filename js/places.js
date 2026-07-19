@@ -16,6 +16,15 @@ export const TIME_OF_DAY_META = {
   evening: { label: "夜", icon: "🌙" },
 };
 
+// この場所へ「どう移動して着くか」。車以外は所要時間を推定表示しない。
+export const TRANSPORT_META = {
+  car: { label: "車", icon: "🚗" },
+  plane: { label: "飛行機", icon: "✈️" },
+  monorail: { label: "ゆいレール・電車", icon: "🚝" },
+  walk: { label: "徒歩", icon: "🚶" },
+  other: { label: "その他", icon: "➡️" },
+};
+
 export const CATEGORY_META = {
   food: { label: "食事", icon: "🍜", defaultMinutes: 60 },
   sight: { label: "観光・景勝地", icon: "🏯", defaultMinutes: 45 },
@@ -78,6 +87,9 @@ export function initPlacesUI({ onChange } = {}) {
     const fixedBadge = p.fixedTime && p.pinnedDay
       ? `<span class="badge fixed">⏰ Day${p.pinnedDay} ${escapeHtml(p.fixedTime)}固定</span>`
       : "";
+    const modeBadge = p.arrivalMode && p.arrivalMode !== "car"
+      ? `<span class="badge">${TRANSPORT_META[p.arrivalMode]?.icon || ""} ${TRANSPORT_META[p.arrivalMode]?.label || ""}で移動</span>`
+      : "";
     const subHtml = (p.subLocations || []).length
       ? `<div class="sub-loc-list">${p.subLocations.map(s => `
           <div class="sub-loc-item">
@@ -101,6 +113,7 @@ export function initPlacesUI({ onChange } = {}) {
               ${mealBadges}
               ${todBadges}
               ${fixedBadge}
+              ${modeBadge}
               ${geoWarn}
             </div>
           </div>
@@ -124,6 +137,7 @@ export function initPlacesUI({ onChange } = {}) {
     document.getElementById("pf-category").value = p?.category || "sight";
     document.getElementById("pf-address").value = p?.address || "";
     document.getElementById("pf-url").value = p?.url || "";
+    document.getElementById("pf-arrival-mode").value = p?.arrivalMode || "car";
     document.getElementById("pf-duration").value = p?.durationMin || CATEGORY_META[p?.category || "sight"].defaultMinutes;
     document.getElementById("pf-hours").value = p?.hours || "";
     document.getElementById("pf-priority").value = p?.priority || "want";
@@ -335,6 +349,7 @@ export function initPlacesUI({ onChange } = {}) {
       address,
       url: document.getElementById("pf-url").value.trim(),
       photoUrl: modal.dataset.photoUrl || null,
+      arrivalMode: document.getElementById("pf-arrival-mode").value || "car",
       lat, lng,
       durationMin: Number(document.getElementById("pf-duration").value) || 30,
       hours: document.getElementById("pf-hours").value.trim(),
