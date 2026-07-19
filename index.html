@@ -213,6 +213,16 @@
           <input type="time" id="st-day-end" value="19:00">
         </label>
       </div>
+
+      <div class="field backup-section">
+        <span>💾 データのバックアップ</span>
+        <p class="hint">このアプリのデータはこの端末のブラウザにのみ保存されています（サーバーには送られません）。iPhoneのSafariは一定期間使わないサイトのデータを自動で消すことがあるため、時々バックアップの保存をおすすめします。</p>
+        <div class="field-row">
+          <button type="button" class="btn" id="backup-export">📤 バックアップを保存</button>
+          <button type="button" class="btn" id="backup-import">📥 バックアップから復元</button>
+        </div>
+        <input type="file" id="backup-file-input" accept="application/json" hidden>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn primary" id="st-save">保存</button>

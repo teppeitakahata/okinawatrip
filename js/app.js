@@ -1,8 +1,8 @@
-import { store, dedupePlaces, uid } from "./storage.js";
+import { store, dedupePlaces, uid, exportAll, importAll } from "./storage.js";
 import { geocodeAddress, googleMapsUrl, googleMapsDirectionsUrl, driveMinutes } from "./geo.js";
 import { initPlacesUI, CATEGORY_META, TRANSPORT_META } from "./places.js";
 import { computeManualDay, parseHHMM, minutesToHHMM } from "./scheduler.js";
-import { toast } from "./ui-helpers.js";
+import { toast, confirmDialog } from "./ui-helpers.js";
 
 let placesUI = null;
 
@@ -367,6 +367,46 @@ function initSettingsUI() {
     renderDayTabs();
     renderTimeline();
     toast("設定を保存しました");
+  });
+
+  document.getElementById("backup-export").addEventListener("click", () => {
+    const json = exportAll();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `okinawa-trip-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("バックアップを保存しました");
+  });
+
+  const fileInput = document.getElementById("backup-file-input");
+  document.getElementById("backup-import").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    fileInput.value = "";
+    if (!file) return;
+    const ok = await confirmDialog(
+      "バックアップを読み込むと、今この端末にある行きたい場所・日程がすべて置き換わります。よろしいですか？",
+      { okLabel: "復元する", danger: true }
+    );
+    if (!ok) return;
+    try {
+      const text = await file.text();
+      const result = importAll(text);
+      document.getElementById("settingsModal").hidden = true;
+      activeDay = 0;
+      renderDayTabs();
+      renderTimeline();
+      placesUI.renderList();
+      toast(`${result.placeCount}件の場所を復元しました`);
+    } catch (e) {
+      toast(e.message);
+    }
   });
 }
 
