@@ -15,13 +15,31 @@ function hasCoords(p) {
   return p && p.lat != null && p.lng != null;
 }
 
-// その区間を車の所要時間として見積もれるか(車移動かつ両地点に座標がある)
+// 車移動として現実的な直線距離の上限(km)。これを超えて「車」設定の区間は車移動とは考えにくい。
+const CAR_MAX_KM = 120;
+// 飛行機等(車以外)の移動として妥当な直線距離の下限(km)。これ未満で「車以外」設定の区間は、
+// 近すぎて飛行機移動とは考えにくく、実際には短距離の車移動である可能性が高い。
+const PLANE_MIN_KM = 120;
+
+// その区間を車の所要時間として見積もれるか(車移動かつ両地点に座標がある)。
+// 移動手段は場所ごとの設定を基本にしつつ、両地点の座標から分かる直線距離と矛盾する場合は
+// 距離を優先して自動補正する。
+// 例: 那覇空港に「飛行機」を設定していても、那覇空港⇔自宅(東京)のような短距離区間まで
+// 「飛行機移動」と判定されるのを防ぐ(住所から見て明らかに矛盾するため)。
 function carLeg(from, to) {
-  const byCar = (to.arrivalMode || "car") === "car";
-  if (byCar && hasCoords(from) && hasCoords(to)) {
-    return { travelMin: driveMinutes(from, to), distanceKm: haversineKm(from, to), mode: "car", estimated: true };
+  const rawMode = to.arrivalMode || "car";
+  if (hasCoords(from) && hasCoords(to)) {
+    const distanceKm = haversineKm(from, to);
+    const mode =
+      rawMode !== "car" && distanceKm < PLANE_MIN_KM ? "car"
+      : rawMode === "car" && distanceKm > CAR_MAX_KM ? "plane"
+      : rawMode;
+    if (mode === "car") {
+      return { travelMin: driveMinutes(from, to), distanceKm, mode: "car", estimated: true };
+    }
+    return { travelMin: 0, distanceKm, mode, estimated: false };
   }
-  return { travelMin: 0, distanceKm: 0, mode: to.arrivalMode || "car", estimated: false };
+  return { travelMin: 0, distanceKm: 0, mode: rawMode, estimated: false };
 }
 
 // 手動で入力された各予定の時刻をもとに、その日のタイムラインと
