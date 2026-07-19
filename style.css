@@ -127,16 +127,15 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
   border-left: 5px solid var(--teal);
 }
 
-/* カテゴリごとに一目で見分けられるよう、カード左のアクセント色と、
-   文字の読みやすさを保つための薄い背景色(カテゴリ色12%+基本背景色)を分ける */
-.place-card[data-category="food"] { border-left-color: #f59e0b; background: color-mix(in srgb, #f59e0b 12%, var(--card)); }
-.place-card[data-category="sight"] { border-left-color: #8b5cf6; background: color-mix(in srgb, #8b5cf6 12%, var(--card)); }
-.place-card[data-category="beach"] { border-left-color: #06b6d4; background: color-mix(in srgb, #06b6d4 12%, var(--card)); }
-.place-card[data-category="activity"] { border-left-color: #ef4444; background: color-mix(in srgb, #ef4444 12%, var(--card)); }
-.place-card[data-category="shopping"] { border-left-color: #ec4899; background: color-mix(in srgb, #ec4899 12%, var(--card)); }
-.place-card[data-category="hotel"] { border-left-color: #64748b; background: color-mix(in srgb, #64748b 12%, var(--card)); }
-.place-card[data-category="home"] { border-left-color: #a8763e; background: color-mix(in srgb, #a8763e 12%, var(--card)); }
-.place-card[data-category="other"] { border-left-color: #94a3b8; background: color-mix(in srgb, #94a3b8 12%, var(--card)); }
+/* カテゴリごとに一目で見分けられるよう、カード左のアクセント色を分ける */
+.place-card[data-category="food"] { border-left-color: #f59e0b; }
+.place-card[data-category="sight"] { border-left-color: #8b5cf6; }
+.place-card[data-category="beach"] { border-left-color: #06b6d4; }
+.place-card[data-category="activity"] { border-left-color: #ef4444; }
+.place-card[data-category="shopping"] { border-left-color: #ec4899; }
+.place-card[data-category="hotel"] { border-left-color: #64748b; }
+.place-card[data-category="home"] { border-left-color: #a8763e; }
+.place-card[data-category="other"] { border-left-color: #94a3b8; }
 
 .place-photo {
   width: 100%;
@@ -280,14 +279,14 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
 }
 
 /* 行きたい場所のカードと同じ配色をスケジュール側にも揃える */
-.tl-card[data-category="food"] { border-left-color: #f59e0b; background: color-mix(in srgb, #f59e0b 12%, var(--card)); }
-.tl-card[data-category="sight"] { border-left-color: #8b5cf6; background: color-mix(in srgb, #8b5cf6 12%, var(--card)); }
-.tl-card[data-category="beach"] { border-left-color: #06b6d4; background: color-mix(in srgb, #06b6d4 12%, var(--card)); }
-.tl-card[data-category="activity"] { border-left-color: #ef4444; background: color-mix(in srgb, #ef4444 12%, var(--card)); }
-.tl-card[data-category="shopping"] { border-left-color: #ec4899; background: color-mix(in srgb, #ec4899 12%, var(--card)); }
-.tl-card[data-category="hotel"] { border-left-color: #64748b; background: color-mix(in srgb, #64748b 12%, var(--card)); }
-.tl-card[data-category="home"] { border-left-color: #a8763e; background: color-mix(in srgb, #a8763e 12%, var(--card)); }
-.tl-card[data-category="other"] { border-left-color: #94a3b8; background: color-mix(in srgb, #94a3b8 12%, var(--card)); }
+.tl-card[data-category="food"] { border-left-color: #f59e0b; }
+.tl-card[data-category="sight"] { border-left-color: #8b5cf6; }
+.tl-card[data-category="beach"] { border-left-color: #06b6d4; }
+.tl-card[data-category="activity"] { border-left-color: #ef4444; }
+.tl-card[data-category="shopping"] { border-left-color: #ec4899; }
+.tl-card[data-category="hotel"] { border-left-color: #64748b; }
+.tl-card[data-category="home"] { border-left-color: #a8763e; }
+.tl-card[data-category="other"] { border-left-color: #94a3b8; }
 
 .tl-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
 .tl-card-title { font-weight: 700; }
