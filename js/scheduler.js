@@ -66,10 +66,9 @@ export function computeManualDay(entries) {
       } else {
         cur.freeGapMin = cur.startMin - needed;
       }
-    } else if (prev.endMin != null) {
-      // 車で見積もれない区間(飛行機/電車/徒歩)は、重なりだけ見て空き時間を出す
-      cur.freeGapMin = cur.startMin - prev.endMin;
     }
+    // 飛行機/電車/徒歩など車で見積もれない区間は、実際の移動時間が分からないため
+    // 「空き時間」としては表示しない(重なりチェックのみ上で行っている)。
   }
 
   return { items };
