@@ -1,4 +1,4 @@
-import { store, dedupePlaces } from "./storage.js";
+import { store, dedupePlaces, uid } from "./storage.js";
 import { geocodeAddress, googleMapsUrl, googleMapsDirectionsUrl, driveMinutes } from "./geo.js";
 import { initPlacesUI, CATEGORY_META, TRANSPORT_META } from "./places.js";
 import { computeManualDay, parseHHMM, minutesToHHMM } from "./scheduler.js";
@@ -24,11 +24,18 @@ function ensureScheduleShape(settings) {
     schedule = { days: [] };
   }
   while (schedule.days.length < numDays) {
-    schedule.days.push({ dayIndex: schedule.days.length, placeIds: [], startTimes: {} });
+    schedule.days.push({ dayIndex: schedule.days.length, entries: [] });
   }
   schedule.days = schedule.days.slice(0, numDays);
+  // 旧形式(placeIds + startTimes)を新形式(entries: [{uid, placeId, time}])へ移行。
+  // entries なら同じ場所(ホテル等)を1日に複数回入れられる。
   schedule.days.forEach(d => {
-    if (!d.startTimes) d.startTimes = {};
+    if (!Array.isArray(d.entries)) {
+      const times = d.startTimes || {};
+      d.entries = (d.placeIds || []).map(pid => ({ uid: uid(), placeId: pid, time: times[pid] || "" }));
+    }
+    delete d.placeIds;
+    delete d.startTimes;
   });
   return schedule;
 }
@@ -61,27 +68,29 @@ function renderDayTabs() {
 
 // 新しく日程に追加する予定の、開始時刻の初期値を決める。
 // 固定時刻があればそれ、無ければ「前の予定の終了＋移動」を初期時刻の目安にする。
+// 同じ場所を複数回追加できるよう、毎回 uid 付きの entry を作る。
 function assignPlaceToDay(schedule, dayIdx, placeId, settings) {
   const day = schedule.days[dayIdx];
-  if (day.placeIds.includes(placeId)) return;
   const placesById = getPlacesById();
   const newPlace = placesById.get(placeId);
-  const route = day.placeIds.map(id => placesById.get(id)).filter(Boolean);
   const dayStartMin = toMinutes(settings.dayStart);
   const byCar = (newPlace?.arrivalMode || "car") === "car";
 
   let suggested = dayStartMin;
-  if (route.length > 0) {
-    const prev = route[route.length - 1];
-    const pt = day.startTimes[prev.id];
-    const prevEnd = (pt ? parseHHMM(pt) : dayStartMin) + (prev.durationMin || 30);
+  if (day.entries.length > 0) {
+    const prevEntry = day.entries[day.entries.length - 1];
+    const prev = placesById.get(prevEntry.placeId);
+    const prevEnd = (prevEntry.time ? parseHHMM(prevEntry.time) : dayStartMin) + (prev?.durationMin ?? 30);
     let travel = 0;
-    if (byCar && prev.lat != null && newPlace?.lat != null) travel = driveMinutes(prev, newPlace);
+    if (byCar && prev?.lat != null && newPlace?.lat != null) travel = driveMinutes(prev, newPlace);
     suggested = prevEnd + travel;
   }
 
-  day.placeIds.push(placeId);
-  day.startTimes[placeId] = newPlace?.fixedTime ? newPlace.fixedTime : minutesToHHMM(suggested);
+  day.entries.push({
+    uid: uid(),
+    placeId,
+    time: newPlace?.fixedTime ? newPlace.fixedTime : minutesToHHMM(suggested),
+  });
 }
 
 function renderTimeline() {
@@ -91,13 +100,15 @@ function renderTimeline() {
   const timelineEl = document.getElementById("dayTimeline");
   const warnEl = document.getElementById("dayWarning");
 
-  const day = schedule.days[activeDay] || { placeIds: [], startTimes: {} };
-  const route = day.placeIds.map(id => placesById.get(id)).filter(Boolean);
+  const day = schedule.days[activeDay] || { entries: [] };
+  // 参照が壊れているentry(削除された場所)は除外
+  const entries = day.entries.filter(e => placesById.get(e.placeId));
+  const resolved = entries.map(e => ({ ...e, place: placesById.get(e.placeId) }));
 
-  const { items } = computeManualDay(route, day.startTimes || {});
+  const { items } = computeManualDay(resolved);
 
   let html = "";
-  if (route.length === 0) {
+  if (entries.length === 0) {
     html += `<p class="hint" style="margin:6px 0 14px">各予定の時刻は自分で入力できます。アプリは予定どうしの間隔に無理がないか（移動時間が足りているか）だけを確認します。下のボタンから予定を追加してください。</p>`;
   }
 
@@ -125,7 +136,10 @@ function renderTimeline() {
           ? `<div class="tl-card-note">🕒 前の予定から約${it.freeGapMin}分の空き時間があります。</div>`
           : "");
 
-    const endLabel = it.endMin != null ? `〜 ${minutesToHHMM(it.endMin)}` : "";
+    const noStay = it.durationMin === 0;
+    const stayLabel = noStay
+      ? "通過・出発地点（滞在なし）"
+      : `滞在${it.durationMin}分${it.endMin != null ? ` 〜 ${minutesToHHMM(it.endMin)}` : ""}`;
     const mapLinks = [];
     if (hasCoords) {
       mapLinks.push(`<a href="${googleMapsUrl(p)}" target="_blank" rel="noopener">🗺️ 地図</a>`);
@@ -137,16 +151,17 @@ function renderTimeline() {
     html += `
       <div class="tl-item ${it.warning ? "tl-item-warn" : ""}" data-place-id="${p.id}">
         <div class="tl-time">
-          <input type="time" class="tl-time-input" data-time="${p.id}" value="${escapeAttr(day.startTimes[p.id] || "")}">
+          <input type="time" class="tl-time-input" data-time="${it.entry.uid}" value="${escapeAttr(it.entry.time || "")}">
         </div>
         <div class="tl-line"><div class="tl-dot"></div><div class="tl-connector"></div></div>
         <div class="tl-card">
           <div class="tl-card-top">
             <div>
               <div class="tl-card-title">${cat.icon} ${escapeHtml(p.name)}</div>
-              <div class="tl-card-sub">滞在${p.durationMin}分 ${endLabel}${p.hours ? " ・ " + escapeHtml(p.hours) : ""}</div>
+              <div class="tl-card-sub">${stayLabel}${p.hours ? " ・ " + escapeHtml(p.hours) : ""}</div>
             </div>
             <div class="tl-controls">
+              <button data-edit="${p.id}" aria-label="編集">✏️</button>
               <button data-act="up" data-idx="${idx}" aria-label="上へ">▲</button>
               <button data-act="down" data-idx="${idx}" aria-label="下へ">▼</button>
               <button data-act="remove" data-idx="${idx}" aria-label="外す">✕</button>
@@ -167,15 +182,17 @@ function renderTimeline() {
     <button id="manualAddBtn" class="btn primary">＋ この日に予定を手動で追加</button>
   </div>`;
 
-  const unassigned = store.getPlaces().filter(p => !schedule.days.some(d => d.placeIds.includes(p.id)));
-  if (unassigned.length) {
-    html += `<div class="section-toolbar"><span class="muted">登録済みで、この日程にまだ入っていない場所（タップで追加）</span></div>`;
-    html += unassigned.map(p => {
+  const allPlaces = store.getPlaces();
+  if (allPlaces.length) {
+    const inThisDay = new Set(entries.map(e => e.placeId));
+    html += `<div class="section-toolbar"><span class="muted">登録済みの場所から追加（同じ場所を複数回追加できます）</span></div>`;
+    html += allPlaces.map(p => {
       const cat = CATEGORY_META[p.category] || CATEGORY_META.other;
+      const added = inThisDay.has(p.id) ? `<span class="muted" style="font-size:0.78rem;margin-right:6px">追加済み</span>` : "";
       return `<div class="place-card" data-priority="${p.priority}">
         <div class="place-card-top">
           <div class="place-name">${cat.icon} ${escapeHtml(p.name)}</div>
-          <div class="place-actions"><button data-add-to-day="${p.id}" class="btn small">＋ この日に追加</button></div>
+          <div class="place-actions">${added}<button data-add-to-day="${p.id}" class="btn small">＋ この日に追加</button></div>
         </div>
       </div>`;
     }).join("");
@@ -204,23 +221,23 @@ function wireTimelineEvents(schedule, settings) {
 
   timelineEl.querySelectorAll("[data-time]").forEach(inp => {
     inp.addEventListener("change", () => {
-      schedule.days[activeDay].startTimes[inp.dataset.time] = inp.value;
-      store.setSchedule(schedule);
-      renderTimeline();
+      const entry = schedule.days[activeDay].entries.find(e => e.uid === inp.dataset.time);
+      if (entry) { entry.time = inp.value; store.setSchedule(schedule); renderTimeline(); }
     });
+  });
+
+  timelineEl.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.addEventListener("click", () => placesUI.openModal(btn.dataset.edit));
   });
 
   timelineEl.querySelectorAll("[data-act]").forEach(btn => {
     btn.addEventListener("click", () => {
       const idx = Number(btn.dataset.idx);
       const act = btn.dataset.act;
-      const ids = schedule.days[activeDay].placeIds;
-      if (act === "up" && idx > 0) [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
-      if (act === "down" && idx < ids.length - 1) [ids[idx + 1], ids[idx]] = [ids[idx], ids[idx + 1]];
-      if (act === "remove") {
-        const [removed] = ids.splice(idx, 1);
-        delete schedule.days[activeDay].startTimes[removed];
-      }
+      const entries = schedule.days[activeDay].entries;
+      if (act === "up" && idx > 0) [entries[idx - 1], entries[idx]] = [entries[idx], entries[idx - 1]];
+      if (act === "down" && idx < entries.length - 1) [entries[idx + 1], entries[idx]] = [entries[idx], entries[idx + 1]];
+      if (act === "remove") entries.splice(idx, 1);
       store.setSchedule(schedule);
       renderTimeline();
     });
@@ -231,11 +248,8 @@ function wireTimelineEvents(schedule, settings) {
       const idx = Number(sel.dataset.move);
       const targetDay = Number(sel.value);
       if (targetDay === activeDay) return;
-      const [placeId] = schedule.days[activeDay].placeIds.splice(idx, 1);
-      const time = schedule.days[activeDay].startTimes[placeId];
-      delete schedule.days[activeDay].startTimes[placeId];
-      schedule.days[targetDay].placeIds.push(placeId);
-      if (time) schedule.days[targetDay].startTimes[placeId] = time;
+      const [entry] = schedule.days[activeDay].entries.splice(idx, 1);
+      schedule.days[targetDay].entries.push(entry);
       store.setSchedule(schedule);
       renderTimeline();
       toast(`${formatDayLabel(settings, targetDay)}に移動しました`);

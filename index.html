@@ -66,6 +66,7 @@
           <option value="beach">🏖️ ビーチ・海</option>
           <option value="activity">🤿 アクティビティ</option>
           <option value="shopping">🛍️ 買い物</option>
+          <option value="hotel">🏨 ホテル・宿</option>
           <option value="other">📍 その他</option>
         </select>
       </label>
@@ -116,16 +117,21 @@
         <input type="text" id="pf-url" placeholder="https://...">
       </label>
 
-      <div class="field">
+      <label class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="pf-no-stay" style="width:auto;">
+        <span style="margin:0;">ここには滞在しない（自宅・空港・ホテルなどの出発地点・通過点）</span>
+      </label>
+
+      <div class="field" id="pf-duration-field">
         <span>滞在予定時間（分）</span>
-        <input type="number" id="pf-duration" min="10" step="5" value="60">
+        <input type="number" id="pf-duration" min="0" step="5" value="60">
       </div>
 
       <div class="field">
         <div class="field-head">
           <span>⏰ 固定予定にする（任意）</span>
         </div>
-        <p class="hint">飛行機の到着時刻やレンタカー返却など、時間・日付を変更できない予定はここで指定すると、AIはこの時刻・日付を変えずにスケジュールを組みます。</p>
+        <p class="hint">飛行機の時刻やレンタカー返却など、時間・日付が決まっている予定はここで指定できます。</p>
         <div class="field-row">
           <select id="pf-pinned-day">
             <option value="">日付を指定しない</option>

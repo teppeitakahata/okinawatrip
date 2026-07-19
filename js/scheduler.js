@@ -26,21 +26,22 @@ function carLeg(from, to) {
 
 // 手動で入力された各予定の時刻をもとに、その日のタイムラインと
 // 「予定から予定の間の時間に無理がないか」だけを判定する。
-// - route:  その日の予定(場所オブジェクト)の配列(ユーザーが並べた順)
-// - times:  { [placeId]: "HH:MM" } ユーザーが入力した開始時刻
-export function computeManualDay(route, times) {
-  const items = route.map((stop, i) => {
-    const t = times[stop.id];
+// - entries: その日の予定の配列(ユーザーが並べた順)。各要素は { place, time("HH:MM") }。
+//   同じ場所(ホテル等)が1日に複数回入っていてもよいよう、時刻は要素ごとに持つ。
+export function computeManualDay(entries) {
+  const items = entries.map((entry, i) => {
+    const stop = entry.place;
+    const t = entry.time;
     const startMin = (t != null && t !== "") ? parseHHMM(t) : null;
-    const durationMin = stop.durationMin || 30;
+    const durationMin = stop.durationMin ?? 30;
     const endMin = startMin != null ? startMin + durationMin : null;
 
     // 移動区間は「予定 → 次の予定」の間だけ。最初の予定には移動区間を付けない。
-    const from = i > 0 ? route[i - 1] : null;
+    const from = i > 0 ? entries[i - 1].place : null;
     const leg = from ? carLeg(from, stop) : { travelMin: 0, distanceKm: 0, mode: stop.arrivalMode || "car", estimated: false };
 
     return {
-      place: stop, startMin, endMin, durationMin,
+      place: stop, entry, startMin, endMin, durationMin,
       travelMin: leg.travelMin, distanceKm: leg.distanceKm, mode: leg.mode, estimated: leg.estimated,
       hasLeg: i > 0,
       warning: null,

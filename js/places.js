@@ -31,6 +31,7 @@ export const CATEGORY_META = {
   beach: { label: "ビーチ・海", icon: "🏖️", defaultMinutes: 90 },
   activity: { label: "アクティビティ", icon: "🤿", defaultMinutes: 90 },
   shopping: { label: "買い物", icon: "🛍️", defaultMinutes: 45 },
+  hotel: { label: "ホテル・宿", icon: "🏨", defaultMinutes: 30 },
   other: { label: "その他", icon: "📍", defaultMinutes: 30 },
 };
 
@@ -60,6 +61,7 @@ export function initPlacesUI({ onChange } = {}) {
   document.getElementById("pf-save").addEventListener("click", () => savePlace());
   document.getElementById("pf-delete").addEventListener("click", () => deletePlace());
   document.getElementById("pf-category").addEventListener("change", e => toggleMealFields(e.target.value));
+  document.getElementById("pf-no-stay").addEventListener("change", e => toggleDurationField(e.target.checked));
 
   modal.querySelectorAll("[data-close-modal]").forEach(btn =>
     btn.addEventListener("click", () => closePlaceModal())
@@ -138,7 +140,10 @@ export function initPlacesUI({ onChange } = {}) {
     document.getElementById("pf-address").value = p?.address || "";
     document.getElementById("pf-url").value = p?.url || "";
     document.getElementById("pf-arrival-mode").value = p?.arrivalMode || "car";
-    document.getElementById("pf-duration").value = p?.durationMin || CATEGORY_META[p?.category || "sight"].defaultMinutes;
+    const noStay = p ? p.durationMin === 0 : false;
+    document.getElementById("pf-no-stay").checked = noStay;
+    document.getElementById("pf-duration").value = noStay ? 60 : (p?.durationMin || CATEGORY_META[p?.category || "sight"].defaultMinutes);
+    toggleDurationField(noStay);
     document.getElementById("pf-hours").value = p?.hours || "";
     document.getElementById("pf-priority").value = p?.priority || "want";
     document.getElementById("pf-note").value = p?.note || "";
@@ -172,6 +177,10 @@ export function initPlacesUI({ onChange } = {}) {
 
   function toggleMealFields(category) {
     document.getElementById("pf-mealtypes-field").hidden = category !== "food";
+  }
+
+  function toggleDurationField(noStay) {
+    document.getElementById("pf-duration-field").hidden = noStay;
   }
 
   function closePlaceModal() {
@@ -351,7 +360,7 @@ export function initPlacesUI({ onChange } = {}) {
       photoUrl: modal.dataset.photoUrl || null,
       arrivalMode: document.getElementById("pf-arrival-mode").value || "car",
       lat, lng,
-      durationMin: Number(document.getElementById("pf-duration").value) || 30,
+      durationMin: document.getElementById("pf-no-stay").checked ? 0 : (Number(document.getElementById("pf-duration").value) || 30),
       hours: document.getElementById("pf-hours").value.trim(),
       priority: document.getElementById("pf-priority").value,
       note: document.getElementById("pf-note").value.trim(),
@@ -385,8 +394,10 @@ export function initPlacesUI({ onChange } = {}) {
     // 削除した場所を日程からも取り除く
     const schedule = store.getSchedule();
     if (schedule?.days) {
-      schedule.days.forEach(d => { d.placeIds = (d.placeIds || []).filter(id => id !== removedId); });
-      schedule.unscheduled = (schedule.unscheduled || []).filter(u => u.placeId !== removedId);
+      schedule.days.forEach(d => {
+        if (Array.isArray(d.entries)) d.entries = d.entries.filter(e => e.placeId !== removedId);
+        if (Array.isArray(d.placeIds)) d.placeIds = d.placeIds.filter(id => id !== removedId);
+      });
       store.setSchedule(schedule);
     }
     closePlaceModal();

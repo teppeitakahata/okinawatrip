@@ -60,8 +60,10 @@ export function dedupePlaces() {
     const removedIds = new Set(places.map(p => p.id).filter(id => !kept.some(k => k.id === id)));
     const schedule = store.getSchedule();
     if (schedule?.days) {
-      schedule.days.forEach(d => { d.placeIds = (d.placeIds || []).filter(id => !removedIds.has(id)); });
-      schedule.unscheduled = (schedule.unscheduled || []).filter(u => !removedIds.has(u.placeId));
+      schedule.days.forEach(d => {
+        if (Array.isArray(d.entries)) d.entries = d.entries.filter(e => !removedIds.has(e.placeId));
+        if (Array.isArray(d.placeIds)) d.placeIds = d.placeIds.filter(id => !removedIds.has(id));
+      });
       store.setSchedule(schedule);
     }
   }
