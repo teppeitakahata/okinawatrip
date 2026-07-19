@@ -60,7 +60,10 @@ export function initPlacesUI({ onChange } = {}) {
   document.getElementById("pf-geocode-main").addEventListener("click", () => geocodeMain());
   document.getElementById("pf-save").addEventListener("click", () => savePlace());
   document.getElementById("pf-delete").addEventListener("click", () => deletePlace());
-  document.getElementById("pf-category").addEventListener("change", e => toggleMealFields(e.target.value));
+  document.getElementById("pf-category").addEventListener("change", e => {
+    toggleMealFields(e.target.value);
+    toggleHotelFields(e.target.value);
+  });
   document.getElementById("pf-no-stay").addEventListener("change", e => toggleDurationField(e.target.checked));
 
   modal.querySelectorAll("[data-close-modal]").forEach(btn =>
@@ -140,10 +143,12 @@ export function initPlacesUI({ onChange } = {}) {
     document.getElementById("pf-address").value = p?.address || "";
     document.getElementById("pf-url").value = p?.url || "";
     document.getElementById("pf-arrival-mode").value = p?.arrivalMode || "car";
-    const noStay = p ? p.durationMin === 0 : false;
+    const category = p?.category || "sight";
+    const noStay = category === "hotel" ? true : (p ? p.durationMin === 0 : false);
     document.getElementById("pf-no-stay").checked = noStay;
-    document.getElementById("pf-duration").value = noStay ? 60 : (p?.durationMin || CATEGORY_META[p?.category || "sight"].defaultMinutes);
+    document.getElementById("pf-duration").value = noStay ? 60 : (p?.durationMin || CATEGORY_META[category].defaultMinutes);
     toggleDurationField(noStay);
+    toggleHotelFields(category);
     document.getElementById("pf-hours").value = p?.hours || "";
     document.getElementById("pf-priority").value = p?.priority || "want";
     document.getElementById("pf-note").value = p?.note || "";
@@ -181,6 +186,17 @@ export function initPlacesUI({ onChange } = {}) {
 
   function toggleDurationField(noStay) {
     document.getElementById("pf-duration-field").hidden = noStay;
+  }
+
+  // ホテルは1日に何度も登場し、その都度「滞在時間」を考える意味が無いため、
+  // ホテル選択時は滞在時間の概念自体を無くす(常に通過点として扱う)。
+  function toggleHotelFields(category) {
+    const isHotel = category === "hotel";
+    document.getElementById("pf-no-stay-field").hidden = isHotel;
+    if (isHotel) {
+      document.getElementById("pf-no-stay").checked = true;
+      toggleDurationField(true);
+    }
   }
 
   function closePlaceModal() {
@@ -351,16 +367,18 @@ export function initPlacesUI({ onChange } = {}) {
       return;
     }
 
+    const category = document.getElementById("pf-category").value;
+    const noStay = category === "hotel" || document.getElementById("pf-no-stay").checked;
     const place = {
       id: editingId || uid(),
       name,
-      category: document.getElementById("pf-category").value,
+      category,
       address,
       url: document.getElementById("pf-url").value.trim(),
       photoUrl: modal.dataset.photoUrl || null,
       arrivalMode: document.getElementById("pf-arrival-mode").value || "car",
       lat, lng,
-      durationMin: document.getElementById("pf-no-stay").checked ? 0 : (Number(document.getElementById("pf-duration").value) || 30),
+      durationMin: noStay ? 0 : (Number(document.getElementById("pf-duration").value) || 30),
       hours: document.getElementById("pf-hours").value.trim(),
       priority: document.getElementById("pf-priority").value,
       note: document.getElementById("pf-note").value.trim(),
