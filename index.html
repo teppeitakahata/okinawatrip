@@ -145,7 +145,7 @@
         <input type="text" id="pf-hours" placeholder="例: 11:00-15:00 L.O.14:30">
       </label>
 
-      <label class="field">
+      <label class="field" id="pf-priority-field">
         <span>優先度</span>
         <select id="pf-priority">
           <option value="must">絶対行く</option>
@@ -216,7 +216,7 @@
 
       <div class="field backup-section">
         <span>💾 データのバックアップ</span>
-        <p class="hint">このアプリのデータはこの端末のブラウザにのみ保存されています（サーバーには送られません）。iPhoneのSafariは一定期間使わないサイトのデータを自動で消すことがあるため、時々バックアップの保存をおすすめします。</p>
+        <p class="hint">通常はサーバー上に自動で保存され、家族の誰が開いても同じ内容が見られます。念のため、時々バックアップの保存もおすすめします。</p>
         <div class="field-row">
           <button type="button" class="btn" id="backup-export">📤 バックアップを保存</button>
           <button type="button" class="btn" id="backup-import">📥 バックアップから復元</button>

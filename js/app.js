@@ -171,9 +171,6 @@ function renderTimeline() {
           ${p.note ? `<div class="tl-card-note">💡 ${escapeHtml(p.note)}</div>` : ""}
           ${subLocsHtml(p)}
           ${mapLinks.length ? `<div class="map-links">${mapLinks.join("")}</div>` : ""}
-          <select class="tl-move-select" data-move="${idx}">
-            ${schedule.days.map((_, di) => `<option value="${di}" ${di === activeDay ? "selected" : ""}>${formatDayLabel(settings, di)}へ移動</option>`).join("")}
-          </select>
         </div>
       </div>`;
   });
@@ -189,7 +186,7 @@ function renderTimeline() {
     html += allPlaces.map(p => {
       const cat = CATEGORY_META[p.category] || CATEGORY_META.other;
       const added = inThisDay.has(p.id) ? `<span class="muted" style="font-size:0.78rem;margin-right:6px">追加済み</span>` : "";
-      return `<div class="place-card" data-priority="${p.priority}">
+      return `<div class="place-card" data-category="${p.category}" data-priority="${p.priority}">
         <div class="place-card-top">
           <div class="place-name">${cat.icon} ${escapeHtml(p.name)}</div>
           <div class="place-actions">${added}<button data-add-to-day="${p.id}" class="btn small">＋ この日に追加</button></div>
@@ -240,19 +237,6 @@ function wireTimelineEvents(schedule, settings) {
       if (act === "remove") entries.splice(idx, 1);
       store.setSchedule(schedule);
       renderTimeline();
-    });
-  });
-
-  timelineEl.querySelectorAll("[data-move]").forEach(sel => {
-    sel.addEventListener("change", () => {
-      const idx = Number(sel.dataset.move);
-      const targetDay = Number(sel.value);
-      if (targetDay === activeDay) return;
-      const [entry] = schedule.days[activeDay].entries.splice(idx, 1);
-      schedule.days[targetDay].entries.push(entry);
-      store.setSchedule(schedule);
-      renderTimeline();
-      toast(`${formatDayLabel(settings, targetDay)}に移動しました`);
     });
   });
 

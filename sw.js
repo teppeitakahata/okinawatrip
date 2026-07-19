@@ -1,6 +1,6 @@
 // バージョンを上げるたびに、新しいService Workerが古いキャッシュを破棄して入れ替わる。
 // 更新を配信したいときはこの文字列を必ず上げること（例: v5 → v6）。
-const CACHE = "okinawa-trip-v19";
+const CACHE = "okinawa-trip-v21";
 const ASSETS = [
   "./",
   "./index.html",

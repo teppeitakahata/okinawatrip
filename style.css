@@ -127,7 +127,14 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
   border-left: 5px solid var(--teal);
 }
 
-.place-card[data-priority="must"] { border-left-color: var(--coral); }
+/* カテゴリごとに一目で見分けられるよう、カード左のアクセント色を分ける */
+.place-card[data-category="food"] { border-left-color: #f59e0b; }
+.place-card[data-category="sight"] { border-left-color: #8b5cf6; }
+.place-card[data-category="beach"] { border-left-color: #06b6d4; }
+.place-card[data-category="activity"] { border-left-color: #ef4444; }
+.place-card[data-category="shopping"] { border-left-color: #ec4899; }
+.place-card[data-category="hotel"] { border-left-color: #64748b; }
+.place-card[data-category="other"] { border-left-color: #94a3b8; }
 
 .place-photo {
   width: 100%;
@@ -139,7 +146,6 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
 }
 
 .badge.fixed { background: #dbeeff; color: var(--teal-dark); font-weight: 700; }
-.place-card[data-priority="maybe"] { border-left-color: var(--line); }
 
 .place-card-top {
   display: flex;
@@ -301,13 +307,6 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
   width: 26px;
   height: 26px;
   font-size: 0.8rem;
-}
-
-.tl-move-select {
-  font-size: 0.75rem;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  padding: 2px 4px;
 }
 
 .tl-base-card {

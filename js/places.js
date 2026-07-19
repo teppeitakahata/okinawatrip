@@ -86,6 +86,8 @@ export function initPlacesUI({ onChange } = {}) {
   function placeCardHtml(p) {
     const cat = CATEGORY_META[p.category] || CATEGORY_META.other;
     const pr = PRIORITY_META[p.priority] || PRIORITY_META.want;
+    // ホテル・宿は「絶対行く/できれば行く」を考える対象ではない(単なる拠点)ため表示しない
+    const priorityBadge = p.category === "hotel" ? "" : `<span class="badge priority-${p.priority}">${pr.label}</span>`;
     const geoWarn = p.lat == null ? `<span class="badge warn">未検索の住所</span>` : "";
     const mealBadges = (p.mealTypes || []).map(mt => `<span class="badge">${MEAL_META[mt]?.icon || ""} ${MEAL_META[mt]?.label || mt}</span>`).join("");
     const todBadges = (p.preferredTimeOfDay || []).map(t => `<span class="badge">${TIME_OF_DAY_META[t]?.icon || ""} ${TIME_OF_DAY_META[t]?.label || t}</span>`).join("");
@@ -107,14 +109,14 @@ export function initPlacesUI({ onChange } = {}) {
     if (p.url) links.push(`<a href="${escapeAttr(p.url)}" target="_blank" rel="noopener">🔗 公式・参考サイト</a>`);
     if (p.category === "food") links.push(`<a href="${tabelogSearchUrl(p.name)}" target="_blank" rel="noopener">🍜 食べログで検索</a>`);
     return `
-      <div class="place-card" data-priority="${p.priority}">
+      <div class="place-card" data-category="${p.category}" data-priority="${p.priority}">
         ${photoHtml}
         <div class="place-card-top">
           <div>
             <div class="place-name">${cat.icon} ${escapeHtml(p.name)}</div>
             <div class="place-badges">
               <span class="badge">${cat.label}</span>
-              <span class="badge priority-${p.priority}">${pr.label}</span>
+              ${priorityBadge}
               ${mealBadges}
               ${todBadges}
               ${fixedBadge}
@@ -148,9 +150,9 @@ export function initPlacesUI({ onChange } = {}) {
     document.getElementById("pf-no-stay").checked = noStay;
     document.getElementById("pf-duration").value = noStay ? 60 : (p?.durationMin || CATEGORY_META[category].defaultMinutes);
     toggleDurationField(noStay);
-    toggleHotelFields(category);
     document.getElementById("pf-hours").value = p?.hours || "";
     document.getElementById("pf-priority").value = p?.priority || "want";
+    toggleHotelFields(category);
     document.getElementById("pf-note").value = p?.note || "";
     document.getElementById("pf-delete").hidden = !p;
     setGeoStatus("main", p?.lat != null ? `緯度経度: 取得済み` : "", p?.lat != null ? "ok" : "");
@@ -188,14 +190,16 @@ export function initPlacesUI({ onChange } = {}) {
     document.getElementById("pf-duration-field").hidden = noStay;
   }
 
-  // ホテルは1日に何度も登場し、その都度「滞在時間」を考える意味が無いため、
-  // ホテル選択時は滞在時間の概念自体を無くす(常に通過点として扱う)。
+  // ホテルは1日に何度も登場し、その都度「滞在時間」や「絶対行く/できれば行く」を
+  // 考える意味が無いため、ホテル選択時はその概念自体を無くす(常に通過点として扱う)。
   function toggleHotelFields(category) {
     const isHotel = category === "hotel";
     document.getElementById("pf-no-stay-field").hidden = isHotel;
+    document.getElementById("pf-priority-field").hidden = isHotel;
     if (isHotel) {
       document.getElementById("pf-no-stay").checked = true;
       toggleDurationField(true);
+      document.getElementById("pf-priority").value = "must";
     }
   }
 
