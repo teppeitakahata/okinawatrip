@@ -1,7 +1,7 @@
 import { store, dedupePlaces } from "./storage.js";
 import { geocodeAddress, googleMapsUrl, googleMapsDirectionsUrl } from "./geo.js";
 import { initPlacesUI, CATEGORY_META } from "./places.js";
-import { buildSchedule, rebuildDay, computeDayTimeline, minutesToHHMM } from "./scheduler.js";
+import { buildSchedule, rebuildDay, computeDayTimeline, resolveDayStartMin, minutesToHHMM } from "./scheduler.js";
 import { toast, confirmDialog } from "./ui-helpers.js";
 
 let placesUI = null;
@@ -27,6 +27,11 @@ function ensureScheduleShape(settings) {
     schedule.days.push({ dayIndex: schedule.days.length, placeIds: [], startMin: toMinutes(settings.dayStart) });
   }
   schedule.days = schedule.days.slice(0, numDays);
+  // 拠点発着フラグの既定値(未設定=true)を補う
+  schedule.days.forEach(d => {
+    if (d.startsAtBase === undefined) d.startsAtBase = true;
+    if (d.endsAtBase === undefined) d.endsAtBase = true;
+  });
   return schedule;
 }
 
@@ -69,7 +74,7 @@ function renderTimeline() {
   const day = schedule.days[activeDay] || { placeIds: [] };
   const route = day.placeIds.map(id => placesById.get(id)).filter(Boolean);
   const hasBase = settings.base?.lat != null;
-  const effectiveStartMin = day.startMin ?? dayStartMin;
+  const dayOpts = { startsAtBase: day.startsAtBase !== false, endsAtBase: day.endsAtBase !== false };
 
   if (!hasBase) {
     timelineEl.innerHTML = `<p class="empty-hint show">まず右上の⚙️「旅の設定」で拠点（ホテル）の住所を登録してください。</p>`;
@@ -78,16 +83,28 @@ function renderTimeline() {
     return;
   }
 
-  const timeline = computeDayTimeline(route, settings.base, effectiveStartMin);
+  // 手動追加/並べ替え後でも先頭の予定が希望の時間帯に入るよう、毎回出発時刻を計算し直す
+  const effectiveStartMin = resolveDayStartMin(route, settings.base, dayStartMin, dayEndMin, dayOpts);
+  const timeline = computeDayTimeline(route, settings.base, effectiveStartMin, dayOpts);
+  const baseName = escapeHtml(settings.base.name || "拠点");
 
   let html = `
-    <div class="tl-item">
-      <div class="tl-time">${minutesToHHMM(effectiveStartMin)}</div>
-      <div class="tl-line"><div class="tl-dot"></div><div class="tl-connector"></div></div>
-      <div class="tl-card tl-base-card">
-        <div class="tl-card-title">🏨 ${escapeHtml(settings.base.name || "拠点")} 出発</div>
-      </div>
+    <div class="day-base-toggles">
+      <label><input type="checkbox" id="startsAtBaseChk" ${dayOpts.startsAtBase ? "checked" : ""}> 朝、${baseName}から出発する</label>
+      <label><input type="checkbox" id="endsAtBaseChk" ${dayOpts.endsAtBase ? "checked" : ""}> 夜、${baseName}に戻る</label>
+      <p class="hint">初日（空港着）や最終日（空港発）など、ホテル発着でない日はチェックを外してください。</p>
     </div>`;
+
+  if (dayOpts.startsAtBase) {
+    html += `
+      <div class="tl-item">
+        <div class="tl-time">${minutesToHHMM(effectiveStartMin)}</div>
+        <div class="tl-line"><div class="tl-dot"></div><div class="tl-connector"></div></div>
+        <div class="tl-card tl-base-card">
+          <div class="tl-card-title">🏨 ${baseName} 出発</div>
+        </div>
+      </div>`;
+  }
 
   timeline.items.forEach((it, idx) => {
     const p = it.place;
@@ -133,17 +150,19 @@ function renderTimeline() {
       </div>`;
   });
 
-  if (timeline.travelBackMin > 0) {
-    html += `<div class="tl-travel">🚗 車で約${timeline.travelBackMin}分でホテルへ</div>`;
+  if (dayOpts.endsAtBase) {
+    if (timeline.travelBackMin > 0) {
+      html += `<div class="tl-travel">🚗 車で約${timeline.travelBackMin}分で${baseName}へ</div>`;
+    }
+    html += `
+      <div class="tl-item">
+        <div class="tl-time">${minutesToHHMM(timeline.returnTime)}</div>
+        <div class="tl-line"><div class="tl-dot"></div></div>
+        <div class="tl-card tl-base-card">
+          <div class="tl-card-title">🏨 ${baseName} 帰着</div>
+        </div>
+      </div>`;
   }
-  html += `
-    <div class="tl-item">
-      <div class="tl-time">${minutesToHHMM(timeline.returnTime)}</div>
-      <div class="tl-line"><div class="tl-dot"></div></div>
-      <div class="tl-card tl-base-card">
-        <div class="tl-card-title">🏨 ${escapeHtml(settings.base.name || "拠点")} 帰着</div>
-      </div>
-    </div>`;
 
   html += `<div class="section-toolbar" style="margin-top:22px">
     <button id="manualAddBtn" class="btn primary">＋ この日に予定を手動で追加</button>
@@ -167,7 +186,8 @@ function renderTimeline() {
 
   if (timeline.returnTime > dayEndMin + 15) {
     warnEl.hidden = false;
-    warnEl.textContent = `⚠ ホテル帰着が${minutesToHHMM(timeline.returnTime)}頃になり、設定した終了時刻(${settings.dayEnd})を超える見込みです。予定を減らすか、AIで再作成してください。`;
+    const tail = dayOpts.endsAtBase ? `${baseName}帰着` : "最後の予定終了";
+    warnEl.textContent = `⚠ ${tail}が${minutesToHHMM(timeline.returnTime)}頃になり、設定した終了時刻(${settings.dayEnd})を超える見込みです。予定を減らすか、AIで再作成してください。`;
   } else {
     warnEl.hidden = true;
   }
@@ -182,6 +202,19 @@ function renderTimeline() {
   } else {
     unschedEl.hidden = true;
   }
+
+  const startsChk = document.getElementById("startsAtBaseChk");
+  const endsChk = document.getElementById("endsAtBaseChk");
+  if (startsChk) startsChk.addEventListener("change", () => {
+    schedule.days[activeDay].startsAtBase = startsChk.checked;
+    store.setSchedule(schedule);
+    renderTimeline();
+  });
+  if (endsChk) endsChk.addEventListener("change", () => {
+    schedule.days[activeDay].endsAtBase = endsChk.checked;
+    store.setSchedule(schedule);
+    renderTimeline();
+  });
 
   timelineEl.querySelectorAll("[data-act]").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -280,7 +313,11 @@ async function runAiBuild() {
     if (!ok) return;
   }
 
-  const result = buildSchedule({ places, settings });
+  // 各日の「拠点発着」設定はAI再作成でも維持する
+  const shaped = ensureScheduleShape(settings);
+  const dayOptions = shaped.days.map(d => ({ startsAtBase: d.startsAtBase !== false, endsAtBase: d.endsAtBase !== false }));
+
+  const result = buildSchedule({ places, settings, dayOptions });
   store.setSchedule(result);
   activeDay = 0;
   renderDayTabs();
@@ -298,7 +335,10 @@ function runRebuildDay() {
   const places = store.getPlaces();
 
   const result = rebuildDay({ dayIndex: activeDay, places, schedule, settings });
-  schedule.days[activeDay] = { dayIndex: result.dayIndex, placeIds: result.placeIds, startMin: result.startMin };
+  schedule.days[activeDay] = {
+    dayIndex: result.dayIndex, placeIds: result.placeIds, startMin: result.startMin,
+    startsAtBase: result.startsAtBase, endsAtBase: result.endsAtBase,
+  };
 
   const allPlacedIds = new Set(schedule.days.flatMap(d => d.placeIds));
   const otherUnscheduled = (schedule.unscheduled || []).filter(u => !allPlacedIds.has(u.placeId));

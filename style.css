@@ -355,6 +355,20 @@ main { padding: 8px 14px 20px; max-width: 640px; margin: 0 auto; }
 .meal-checks label { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; font-weight: 500; }
 .meal-checks input { width: auto; }
 
+.day-base-toggles {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.day-base-toggles label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; }
+.day-base-toggles input { width: auto; }
+.day-base-toggles .hint { margin: 2px 0 0; }
+
 input[type=text], input[type=number], input[type=date], input[type=time], select, textarea {
   width: 100%;
   padding: 10px 12px;

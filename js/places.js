@@ -5,8 +5,10 @@ import { toast, confirmDialog } from "./ui-helpers.js";
 export const MEAL_META = {
   breakfast: { label: "朝食", icon: "🍳" },
   lunch: { label: "ランチ", icon: "🍱" },
+  cafe: { label: "カフェ・休憩", icon: "☕" },
   dinner: { label: "ディナー", icon: "🌙" },
 };
+export const MEAL_TYPES = ["breakfast", "lunch", "cafe", "dinner"];
 
 export const TIME_OF_DAY_META = {
   morning: { label: "午前", icon: "🌅" },
@@ -130,9 +132,7 @@ export function initPlacesUI({ onChange } = {}) {
     setGeoStatus("main", p?.lat != null ? `緯度経度: 取得済み` : "", p?.lat != null ? "ok" : "");
     modal.dataset.photoUrl = p?.photoUrl || "";
     const mealTypes = p?.mealTypes || [];
-    document.getElementById("pf-meal-breakfast").checked = mealTypes.includes("breakfast");
-    document.getElementById("pf-meal-lunch").checked = mealTypes.includes("lunch");
-    document.getElementById("pf-meal-dinner").checked = mealTypes.includes("dinner");
+    MEAL_TYPES.forEach(mt => { document.getElementById(`pf-meal-${mt}`).checked = mealTypes.includes(mt); });
     const tod = p?.preferredTimeOfDay || [];
     document.getElementById("pf-tod-morning").checked = tod.includes("morning");
     document.getElementById("pf-tod-afternoon").checked = tod.includes("afternoon");
@@ -314,7 +314,7 @@ export function initPlacesUI({ onChange } = {}) {
       }
     }
 
-    const mealTypes = ["breakfast", "lunch", "dinner"].filter(
+    const mealTypes = MEAL_TYPES.filter(
       mt => document.getElementById(`pf-meal-${mt}`).checked
     );
     const preferredTimeOfDay = ["morning", "afternoon", "evening"].filter(
